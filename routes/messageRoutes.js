@@ -154,7 +154,7 @@ router.post('/:sessionId/otp', validateSession, validatePhoneNumber, async (req,
 });
 
 // POST - Kirim gambar
-router.post('/:sessionId/image', validateSession, validatePhoneNumber, upload.single('image'), async (req, res) => {
+router.post('/:sessionId/image', validateSession, upload.single('image'), validatePhoneNumber, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { to, caption = '', imageUrl } = req.body;
@@ -205,7 +205,7 @@ router.post('/:sessionId/image', validateSession, validatePhoneNumber, upload.si
 });
 
 // POST - Kirim video
-router.post('/:sessionId/video', validateSession, validatePhoneNumber, upload.single('video'), async (req, res) => {
+router.post('/:sessionId/video', validateSession, upload.single('video'), validatePhoneNumber, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { to, caption = '', videoUrl } = req.body;
@@ -255,7 +255,7 @@ router.post('/:sessionId/video', validateSession, validatePhoneNumber, upload.si
 });
 
 // POST - Kirim audio
-router.post('/:sessionId/audio', validateSession, validatePhoneNumber, upload.single('audio'), async (req, res) => {
+router.post('/:sessionId/audio', validateSession, upload.single('audio'), validatePhoneNumber, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { to, audioUrl } = req.body;
@@ -304,7 +304,7 @@ router.post('/:sessionId/audio', validateSession, validatePhoneNumber, upload.si
 });
 
 // POST - Kirim dokumen
-router.post('/:sessionId/document', validateSession, validatePhoneNumber, upload.single('document'), async (req, res) => {
+router.post('/:sessionId/document', validateSession, upload.single('document'), validatePhoneNumber, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { to, filename, documentUrl } = req.body;
