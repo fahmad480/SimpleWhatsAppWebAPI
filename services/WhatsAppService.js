@@ -95,13 +95,33 @@ class WhatsAppService {
 
         if (connection === 'close') {
           const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
           
-          this.logger.info(`Connection closed untuk session ${sessionId}. Reconnecting: ${shouldReconnect}`);
+          this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
           
           if (shouldReconnect) {
-            setTimeout(() => {
-              this.createSession(sessionId);
-            }, 5000);
+            // Jika ini adalah restart setelah pairing (stream error 515), 
+            // jangan hapus session data, hanya recreate socket
+            if (statusCode === 515 || lastDisconnect?.error?.message?.includes('Stream Errored')) {
+              this.logger.info(`Restart diperlukan setelah pairing untuk session ${sessionId}, mempertahankan data session`);
+              
+              // Update session data tapi jangan hapus
+              sessionData.isConnected = false;
+              sessionData.qrCode = null;
+              
+              // Delay sebelum reconnect tanpa menghapus session files
+              setTimeout(() => {
+                this.reconnectSession(sessionId);
+              }, 3000);
+            } else {
+              // Untuk error lain, hapus session dulu
+              await this.removeSession(sessionId);
+              
+              // Delay sebelum reconnect
+              setTimeout(() => {
+                this.createSession(sessionId);
+              }, 5000);
+            }
           } else {
             await this.removeSession(sessionId);
           }
@@ -110,7 +130,7 @@ class WhatsAppService {
           sessionData.user = sock.user;
           sessionData.qrCode = null;
           this.qrCodes.delete(sessionId);
-          this.logger.info(`Session ${sessionId} terhubung sebagai ${sock.user?.name || sock.user?.id}`);
+          this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
         }
       });
 
@@ -126,6 +146,144 @@ class WhatsAppService {
     } catch (error) {
       this.logger.error(`Error membuat session ${sessionId}:`, error);
       throw error;
+    }
+  }
+
+  // Create or recreate session (for reconnection)
+  async recreateSession(sessionId) {
+    try {
+      // Hapus session lama jika ada
+      if (this.sessions.has(sessionId)) {
+        const session = this.sessions.get(sessionId);
+        if (session.socket) {
+          try {
+            await session.socket.logout();
+          } catch (e) {
+            // Ignore logout errors
+          }
+        }
+        this.sessions.delete(sessionId);
+        this.qrCodes.delete(sessionId);
+      }
+
+      // Buat session baru
+      return await this.createSession(sessionId);
+    } catch (error) {
+      this.logger.error(`Error recreating session ${sessionId}:`, error);
+      throw error;
+    }
+  }
+
+  // Reconnect session without removing session data (for post-pairing restart)
+  async reconnectSession(sessionId) {
+    try {
+      const sessionPath = path.join('sessions', sessionId);
+      
+      // Pastikan session path masih ada
+      if (!await fs.pathExists(sessionPath)) {
+        this.logger.warn(`Session path tidak ditemukan untuk ${sessionId}, membuat session baru`);
+        return await this.createSession(sessionId);
+      }
+
+      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+      const { version, isLatest } = await fetchLatestBaileysVersion();
+
+      this.logger.info(`Reconnecting session ${sessionId} menggunakan WA v${version.join('.')}, isLatest: ${isLatest}`);
+
+      const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        browser: ['WhatsApp OTP API', 'Chrome', '1.0.0'],
+        generateHighQualityLinkPreview: true,
+        defaultQueryTimeoutMs: 60000,
+      });
+
+      // Update session data yang ada
+      const sessionData = this.sessions.get(sessionId) || {
+        sessionId,
+        isConnected: false,
+        qrCode: null,
+        user: null,
+        lastSeen: new Date()
+      };
+
+      sessionData.socket = sock;
+      sessionData.isConnected = false;
+      sessionData.lastSeen = new Date();
+
+      this.sessions.set(sessionId, sessionData);
+
+      // Event handlers (same as createSession)
+      sock.ev.on('creds.update', saveCreds);
+      
+      sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+          const qrCodeString = await QRCode.toDataURL(qr);
+          sessionData.qrCode = qrCodeString;
+          this.qrCodes.set(sessionId, {
+            qr: qrCodeString,
+            timestamp: new Date()
+          });
+          this.logger.info(`QR Code generated untuk session ${sessionId}`);
+        }
+
+        if (connection === 'close') {
+          const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          
+          this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+          
+          if (shouldReconnect) {
+            // Jika ini adalah restart setelah pairing (stream error 515), 
+            // jangan hapus session data, hanya recreate socket
+            if (statusCode === 515 || lastDisconnect?.error?.message?.includes('Stream Errored')) {
+              this.logger.info(`Restart diperlukan setelah pairing untuk session ${sessionId}, mempertahankan data session`);
+              
+              // Update session data tapi jangan hapus
+              sessionData.isConnected = false;
+              sessionData.qrCode = null;
+              
+              // Delay sebelum reconnect tanpa menghapus session files
+              setTimeout(() => {
+                this.reconnectSession(sessionId);
+              }, 3000);
+            } else {
+              // Untuk error lain, hapus session dulu
+              await this.removeSession(sessionId);
+              
+              // Delay sebelum reconnect
+              setTimeout(() => {
+                this.createSession(sessionId);
+              }, 5000);
+            }
+          } else {
+            await this.removeSession(sessionId);
+          }
+        } else if (connection === 'open') {
+          sessionData.isConnected = true;
+          sessionData.user = sock.user;
+          sessionData.qrCode = null;
+          this.qrCodes.delete(sessionId);
+          this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
+        }
+      });
+
+      sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.key.fromMe && msg.message) {
+          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid}`);
+          // Webhook untuk pesan masuk bisa ditambahkan di sini
+        }
+      });
+
+      return sessionData;
+    } catch (error) {
+      this.logger.error(`Error reconnecting session ${sessionId}:`, error);
+      // Fallback ke create session baru jika reconnect gagal
+      return await this.createSession(sessionId);
     }
   }
 
@@ -153,14 +311,23 @@ class WhatsAppService {
     const session = this.sessions.get(sessionId);
     if (session) {
       if (session.socket) {
-        await session.socket.logout();
+        try {
+          await session.socket.logout();
+        } catch (error) {
+          // Ignore logout errors, socket mungkin sudah tidak valid
+          this.logger.info(`Logout error untuk session ${sessionId} (ignored):`, error.message);
+        }
       }
       this.sessions.delete(sessionId);
       this.qrCodes.delete(sessionId);
       
       // Remove session files
-      const sessionPath = path.join('sessions', sessionId);
-      await fs.remove(sessionPath);
+      try {
+        const sessionPath = path.join('sessions', sessionId);
+        await fs.remove(sessionPath);
+      } catch (error) {
+        this.logger.warn(`Error removing session files for ${sessionId}:`, error.message);
+      }
       
       this.logger.info(`Session ${sessionId} dihapus`);
     }

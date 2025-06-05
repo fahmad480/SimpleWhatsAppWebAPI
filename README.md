@@ -261,6 +261,45 @@ curl -X POST http://localhost:3000/api/sessions/create \
 curl http://localhost:3000/api/sessions/mysession/status
 ```
 
+### 🔧 Tips Sukses Login QR Code
+
+Berdasarkan perbaikan terbaru (v1.2.0), proses login QR code sudah lebih stabil:
+
+✅ **Yang Sudah Diperbaiki:**
+- Tidak perlu scan QR code berulang kali
+- Sistem otomatis handle restart setelah pairing
+- Session data preserved selama proses login
+
+✅ **Tips Login Sukses:**
+```bash
+# 1. Buat session dan tunggu QR code muncul
+curl -X POST http://localhost:3000/api/sessions/create \
+  -d '{"sessionId": "stable-session"}'
+
+# 2. Buka halaman QR di browser  
+# http://localhost:3000/api/sessions/stable-session/qr-page
+
+# 3. Monitor log di terminal untuk melihat progress:
+# - "QR Code generated" ✅
+# - "pairing configured successfully" ✅  
+# - "Restart diperlukan setelah pairing" ✅
+# - "berhasil terhubung sebagai..." ✅
+
+# 4. Cek status akhir
+curl http://localhost:3000/api/sessions/stable-session/status
+```
+
+⚠️ **Jika Masih Gagal:**
+```bash
+# 1. Restart session
+curl -X PUT http://localhost:3000/api/sessions/stable-session/restart
+
+# 2. Atau hapus dan buat ulang  
+curl -X DELETE http://localhost:3000/api/sessions/stable-session
+curl -X POST http://localhost:3000/api/sessions/create \
+  -d '{"sessionId": "stable-session"}'
+```
+
 ### 2. Kirim OTP
 
 ```bash
@@ -343,46 +382,23 @@ LOG_LEVEL=info
 5. **QR Code**: QR Code expired setelah 2 menit
 6. **Auto Cleanup**: File upload akan dihapus otomatis setelah dikirim
 
+## 🔧 Troubleshooting
+
+Jika mengalami masalah seperti:
+- QR Code timeout error
+- Session tidak terhubung
+- OTP tidak terkirim
+- File upload gagal
+
+Silakan baca **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** untuk solusi lengkap.
+
+### Quick Fix untuk QR Code Timeout:
+```bash
+# Restart session yang bermasalah
+curl -X PUT http://localhost:3000/api/sessions/your-session/restart
+```
+
 ## 🛠️ Development
 
 ### Project Structure
 ```
-whatsapp-otp-api/
-├── index.js                 # Entry point
-├── package.json            # Dependencies
-├── services/
-│   └── WhatsAppService.js  # WhatsApp logic
-├── routes/
-│   ├── sessionRoutes.js    # Session endpoints
-│   ├── messageRoutes.js    # Message endpoints
-│   └── webhookRoutes.js    # Webhook endpoints
-├── sessions/               # WhatsApp session data
-├── uploads/               # Temporary uploads
-├── logs/                  # Application logs
-└── README.md              # Documentation
-```
-
-### Dependencies
-- `@whiskeysockets/baileys` - WhatsApp Web API
-- `express` - Web framework
-- `multer` - File upload handling
-- `qrcode` - QR code generation
-- `winston` - Logging
-- `cors` - CORS support
-- `fs-extra` - File system utilities
-
-## 🤝 Contributing
-
-1. Fork repository
-2. Buat feature branch
-3. Commit changes
-4. Push ke branch
-5. Buat Pull Request
-
-## 📄 License
-
-MIT License
-
-## 🆘 Support
-
-Jika ada pertanyaan atau issues, silakan buat issue di repository ini. 

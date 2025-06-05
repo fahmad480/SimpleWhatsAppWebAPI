@@ -172,20 +172,9 @@ router.delete('/:sessionId', validateSessionId, async (req, res) => {
 router.put('/:sessionId/restart', validateSessionId, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const session = whatsappService.getSession(sessionId);
     
-    if (!session) {
-      return res.status(404).json({
-        success: false,
-        message: 'Session tidak ditemukan'
-      });
-    }
-    
-    // Hapus session lama
-    await whatsappService.removeSession(sessionId);
-    
-    // Buat session baru dengan ID yang sama
-    const newSession = await whatsappService.createSession(sessionId);
+    // Gunakan recreateSession untuk menghindari konflik
+    const newSession = await whatsappService.recreateSession(sessionId);
     
     res.json({
       success: true,
