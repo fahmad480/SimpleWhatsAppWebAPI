@@ -58,3 +58,7 @@ build/
 # Temporary files
 tmp/
 temp/ 
+
+# Database
+*.db
+*.sqlite

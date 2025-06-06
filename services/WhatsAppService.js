@@ -18,6 +18,9 @@ const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 
+// Database models
+const { Session, ActivityLog, OTPLog } = require('../models');
+
 class WhatsAppService {
   constructor() {
     this.sessions = new Map();
@@ -40,6 +43,25 @@ class WhatsAppService {
     cron.schedule('*/5 * * * *', () => {
       this.cleanupExpiredQRCodes();
     });
+
+    // Cleanup old logs every day at 2 AM
+    cron.schedule('0 2 * * *', async () => {
+      await this.cleanupOldLogs();
+    });
+
+    // Expire old OTPs every minute
+    cron.schedule('* * * * *', async () => {
+      await OTPLog.expireOldOTPs();
+    });
+  }
+
+  // Log activity to database
+  async logActivity(data) {
+    try {
+      await ActivityLog.logActivity(data);
+    } catch (error) {
+      this.logger.error('Failed to log activity:', error);
+    }
   }
 
   // Create new WhatsApp session
@@ -49,6 +71,17 @@ class WhatsAppService {
     }
 
     try {
+      // Create or update session in database
+      await Session.createOrUpdate(sessionId, {
+        status: 'connecting'
+      });
+
+      await this.logActivity({
+        sessionId,
+        action: 'session_create',
+        status: 'success'
+      });
+
       const sessionPath = path.join('sessions', sessionId);
       await fs.ensureDir(sessionPath);
 
@@ -90,6 +123,19 @@ class WhatsAppService {
             qr: qrCodeString,
             timestamp: new Date()
           });
+          
+          // Update database
+          await Session.createOrUpdate(sessionId, {
+            qrGenerated: new Date(),
+            status: 'connecting'
+          });
+
+          await this.logActivity({
+            sessionId,
+            action: 'qr_generate',
+            status: 'success'
+          });
+
           this.logger.info(`QR Code generated untuk session ${sessionId}`);
         }
 
@@ -98,6 +144,23 @@ class WhatsAppService {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
           
           this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+          
+          // Log disconnection
+          await this.logActivity({
+            sessionId,
+            action: 'connection_close',
+            status: 'success',
+            details: `Status code: ${statusCode}, Reconnecting: ${shouldReconnect}`,
+            errorMessage: lastDisconnect?.error?.message
+          });
+
+          // Update database
+          await Session.createOrUpdate(sessionId, {
+            isConnected: false,
+            disconnectedAt: new Date(),
+            status: shouldReconnect ? 'connecting' : 'inactive',
+            errorMessage: lastDisconnect?.error?.message
+          });
           
           if (shouldReconnect) {
             // Jika ini adalah restart setelah pairing (stream error 515), 
@@ -130,6 +193,18 @@ class WhatsAppService {
           sessionData.user = sock.user;
           sessionData.qrCode = null;
           this.qrCodes.delete(sessionId);
+
+          // Update database
+          const dbSession = await Session.createOrUpdate(sessionId);
+          await dbSession.setConnected(sock.user);
+
+          await this.logActivity({
+            sessionId,
+            action: 'connection_open',
+            status: 'success',
+            details: `Connected as ${sock.user?.name || sock.user?.id}`
+          });
+
           this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
         }
       });
@@ -138,13 +213,28 @@ class WhatsAppService {
         const msg = m.messages[0];
         if (!msg.key.fromMe && msg.message) {
           this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid}`);
-          // Webhook untuk pesan masuk bisa ditambahkan di sini
+          
+          await this.logActivity({
+            sessionId,
+            action: 'message_receive',
+            phoneNumber: msg.key.remoteJid?.split('@')[0],
+            messageId: msg.key.id,
+            status: 'success'
+          });
         }
       });
 
       return sessionData;
     } catch (error) {
       this.logger.error(`Error membuat session ${sessionId}:`, error);
+      
+      await this.logActivity({
+        sessionId,
+        action: 'session_create',
+        status: 'error',
+        errorMessage: error.message
+      });
+
       throw error;
     }
   }
@@ -321,6 +411,19 @@ class WhatsAppService {
       this.sessions.delete(sessionId);
       this.qrCodes.delete(sessionId);
       
+      // Update database
+      await Session.createOrUpdate(sessionId, {
+        isConnected: false,
+        status: 'inactive',
+        disconnectedAt: new Date()
+      });
+
+      await this.logActivity({
+        sessionId,
+        action: 'session_delete',
+        status: 'success'
+      });
+      
       // Remove session files
       try {
         const sessionPath = path.join('sessions', sessionId);
@@ -347,9 +450,29 @@ class WhatsAppService {
 
     try {
       const result = await session.socket.sendMessage(to, { text });
+      
+      await this.logActivity({
+        sessionId,
+        action: 'message_send',
+        messageType: 'text',
+        phoneNumber: to.replace('@s.whatsapp.net', ''),
+        messageId: result.key.id,
+        status: 'success',
+        responseData: { messageId: result.key.id }
+      });
+
       this.logger.info(`Pesan teks terkirim dari session ${sessionId} ke ${to}`);
       return result;
     } catch (error) {
+      await this.logActivity({
+        sessionId,
+        action: 'message_send',
+        messageType: 'text',
+        phoneNumber: to.replace('@s.whatsapp.net', ''),
+        status: 'error',
+        errorMessage: error.message
+      });
+
       this.logger.error(`Error mengirim pesan teks:`, error);
       throw error;
     }
@@ -367,7 +490,41 @@ Jangan bagikan kode ini kepada siapapun.
 Terima kasih,
 ${companyName}`;
 
-    return await this.sendTextMessage(sessionId, to, otpMessage);
+    try {
+      const result = await this.sendTextMessage(sessionId, to, otpMessage);
+      
+      // Save OTP to database
+      await OTPLog.createOTP({
+        sessionId,
+        phoneNumber: to.replace('@s.whatsapp.net', ''),
+        otp,
+        messageId: result.key.id,
+        companyName
+      });
+
+      await this.logActivity({
+        sessionId,
+        action: 'otp_send',
+        messageType: 'otp',
+        phoneNumber: to.replace('@s.whatsapp.net', ''),
+        messageId: result.key.id,
+        status: 'success',
+        details: `OTP sent to ${to}`,
+        responseData: { messageId: result.key.id }
+      });
+
+      return result;
+    } catch (error) {
+      await this.logActivity({
+        sessionId,
+        action: 'otp_send',
+        messageType: 'otp',
+        phoneNumber: to.replace('@s.whatsapp.net', ''),
+        status: 'error',
+        errorMessage: error.message
+      });
+      throw error;
+    }
   }
 
   // Send image message
@@ -562,6 +719,79 @@ ${companyName}`;
         this.qrCodes.delete(sessionId);
         this.logger.info(`QR Code expired untuk session ${sessionId}`);
       }
+    }
+  }
+
+  // Get all sessions from database
+  async getAllSessionsFromDB() {
+    try {
+      const dbSessions = await Session.findAll({
+        order: [['updatedAt', 'DESC']]
+      });
+
+      const sessions = {};
+      for (const dbSession of dbSessions) {
+        const memorySession = this.sessions.get(dbSession.sessionId);
+        sessions[dbSession.sessionId] = {
+          sessionId: dbSession.sessionId,
+          isConnected: memorySession?.isConnected || false,
+          user: memorySession?.user || {
+            id: dbSession.userId,
+            name: dbSession.userName
+          },
+          lastSeen: dbSession.lastSeen,
+          status: dbSession.status,
+          connectedAt: dbSession.connectedAt,
+          disconnectedAt: dbSession.disconnectedAt,
+          qrGenerated: dbSession.qrGenerated
+        };
+      }
+
+      return sessions;
+    } catch (error) {
+      this.logger.error('Error getting sessions from database:', error);
+      return this.getAllSessions(); // Fallback to memory
+    }
+  }
+
+  // Cleanup old logs
+  async cleanupOldLogs() {
+    try {
+      const activityDeleted = await ActivityLog.cleanup(30); // 30 days
+      const otpDeleted = await OTPLog.cleanup(7); // 7 days
+      
+      this.logger.info(`Cleanup completed: ${activityDeleted} activity logs, ${otpDeleted} OTP logs deleted`);
+    } catch (error) {
+      this.logger.error('Error during cleanup:', error);
+    }
+  }
+
+  // Get session statistics
+  async getSessionStats(sessionId) {
+    try {
+      const session = await Session.getBySessionId(sessionId);
+      if (!session) return null;
+
+      const messageStats = await ActivityLog.getMessageStats(sessionId);
+      const otpStats = await OTPLog.getPhoneStats(session.userPhone);
+      
+      return {
+        session: {
+          sessionId: session.sessionId,
+          userId: session.userId,
+          userName: session.userName,
+          userPhone: session.userPhone,
+          isConnected: session.isConnected,
+          status: session.status,
+          connectedAt: session.connectedAt,
+          lastSeen: session.lastSeen
+        },
+        messageStats,
+        otpStats
+      };
+    } catch (error) {
+      this.logger.error('Error getting session stats:', error);
+      return null;
     }
   }
 }
