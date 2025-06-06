@@ -1,74 +1,74 @@
 # Troubleshooting Guide - WhatsApp OTP API
 
-## 🔧 Masalah Umum dan Solusi
+## 🔧 Common Issues and Solutions
 
-### 1. QR Code Timeout / Scan QR Code Selalu Restart
+### 1. QR Code Timeout / Scan QR Code Always Restart
 
 **Error:**
 ```
 Error: QR refs attempts ended
-Error: Session abc sudah ada
+Error: Session abc already exists
 pairing configured successfully, expect to restart the connection...
 stream errored out - code 515
-Connection closed untuk session abc. Reconnecting: true
+Connection closed for session abc. Reconnecting: true
 ```
 
-**Penyebab:**
-- Setelah QR code di-scan, WhatsApp memerlukan restart connection
-- Sistem lama menghapus session data saat restart, sehingga pairing hilang
-- User harus scan QR code berulang kali
+**Cause:**
+- After QR code is scanned, WhatsApp requires connection restart
+- Old system deleted session data during restart, causing pairing to be lost
+- User had to scan QR code repeatedly
 
-**Solusi:**
-✅ **Sudah Diperbaiki** - Versi terbaru menangani restart dengan smart handling:
+**Solution:**
+✅ **Already Fixed** - Latest version handles restart with smart handling:
 
-**Perbaikan yang Diterapkan:**
-1. **Smart Reconnection**: Sistem membedakan antara restart setelah pairing vs error normal
-2. **Preserve Session Data**: Data pairing tidak dihapus saat restart diperlukan
-3. **Graceful Recovery**: Fallback ke method lama jika smart reconnection gagal
+**Applied Fixes:**
+1. **Smart Reconnection**: System differentiates between restart after pairing vs normal error
+2. **Preserve Session Data**: Pairing data not deleted when restart is required
+3. **Graceful Recovery**: Fallback to old method if smart reconnection fails
 
-**Cara Kerja Baru:**
+**New Flow:**
 ```
-1. User scan QR code ✅
-2. Pairing berhasil ✅
-3. WhatsApp minta restart (stream error 515) ✅
-4. Sistem restart tanpa hapus session data ✅
-5. Koneksi berhasil tanpa scan ulang ✅
+1. User scans QR code ✅
+2. Pairing successful ✅
+3. WhatsApp requests restart (stream error 515) ✅
+4. System restarts without deleting session data ✅
+5. Connection successful without rescan ✅
 ```
 
-**Manual Fix jika masih terjadi:**
+**Manual Fix if still occurring:**
 ```bash
-# 1. Restart session yang bermasalah
+# 1. Restart problematic session
 curl -X PUT http://localhost:3000/api/sessions/test-session/restart
 
-# 2. Atau hapus dan buat ulang
+# 2. Or delete and recreate
 curl -X DELETE http://localhost:3000/api/sessions/test-session
 curl -X POST http://localhost:3000/api/sessions/create \
   -H "Content-Type: application/json" \
   -d '{"sessionId": "test-session"}'
 ```
 
-**Tips Sukses Login:**
-- ⏰ Scan QR code dalam 2 menit setelah muncul
-- 📱 Pastikan koneksi internet HP stabil
-- 🔄 Jika gagal, tunggu 30 detik sebelum coba lagi
-- 📊 Monitor log untuk melihat progress
+**Success Login Tips:**
+- ⏰ Scan QR code within 2 minutes of appearance
+- 📱 Ensure stable internet connection on phone
+- 🔄 If fails, wait 30 seconds before trying again
+- 📊 Monitor logs to see progress
 
-### 2. Session Tidak Terhubung
+### 2. Session Not Connected
 
 **Error:**
 ```
-{"success":false,"message":"Session tidak terhubung"}
+{"success":false,"message":"Session not connected"}
 ```
 
-**Solusi:**
+**Solution:**
 ```bash
-# 1. Cek status session
+# 1. Check session status
 curl http://localhost:3000/api/sessions/your-session/status
 
-# 2. Jika belum connected, ambil QR code baru
+# 2. If not connected, get new QR code
 curl http://localhost:3000/api/sessions/your-session/qr
 
-# 3. Atau buka di browser
+# 3. Or open in browser
 # http://localhost:3000/api/sessions/your-session/qr-page
 ```
 
@@ -76,51 +76,51 @@ curl http://localhost:3000/api/sessions/your-session/qr
 
 **Error:**
 ```
-Error: Tipe file image/svg+xml tidak didukung
+Error: File type image/svg+xml not supported
 ```
 
-**Solusi:**
-File types yang didukung:
+**Solution:**
+Supported file types:
 - **Images:** JPEG, JPG, PNG, GIF, WebP
 - **Videos:** MP4, AVI, MOV, WMV, 3GP  
 - **Audio:** MP3, WAV, OGG, M4A, MPEG
 - **Documents:** PDF, DOC, DOCX, XLS, XLSX, TXT, CSV
 
-### 4. Nomor Telepon Invalid
+### 4. Invalid Phone Number
 
 **Error:**
 ```
-{"success":false,"message":"Nomor telepon diperlukan"}
+{"success":false,"message":"Phone number required"}
 ```
 
-**Solusi:**
+**Solution:**
 ```javascript
-// Format yang benar:
+// Correct formats:
 "to": "08123456789"   // ✅
 "to": "8123456789"    // ✅  
 "to": "628123456789"  // ✅
 
-// Format yang salah:
+// Wrong formats:
 "to": "+628123456789" // ❌
 "to": "081-234-56789" // ❌
 ```
 
-### 5. OTP Tidak Terkirim
+### 5. OTP Not Sent
 
-**Kemungkinan Penyebab:**
-1. Session belum terhubung
-2. Nomor telepon tidak terdaftar di WhatsApp
-3. Rate limiting dari WhatsApp
+**Possible Causes:**
+1. Session not connected
+2. Phone number not registered on WhatsApp
+3. Rate limiting from WhatsApp
 
-**Solusi:**
+**Solution:**
 ```bash
-# 1. Cek status session dulu
+# 1. Check session status first
 curl http://localhost:3000/api/sessions/your-session/status
 
-# 2. Pastikan nomor format Indonesia
+# 2. Ensure Indonesian phone number format
 curl http://localhost:3000/api/messages/format-phone/08123456789
 
-# 3. Test dengan nomor Anda sendiri dulu
+# 3. Test with your own number first
 curl -X POST http://localhost:3000/api/messages/your-session/text \
   -H "Content-Type: application/json" \
   -d '{
@@ -129,21 +129,21 @@ curl -X POST http://localhost:3000/api/messages/your-session/text \
   }'
 ```
 
-### 6. Server Memory Tinggi
+### 6. High Server Memory
 
-**Penyebab:**
-- Terlalu banyak session aktif
-- File upload tidak terbersihkan
+**Cause:**
+- Too many active sessions
+- Upload files not cleaned up
 
-**Solusi:**
+**Solution:**
 ```bash
-# 1. Lihat semua session aktif
+# 1. View all active sessions
 curl http://localhost:3000/api/sessions
 
-# 2. Hapus session yang tidak perlu
+# 2. Delete unnecessary sessions
 curl -X DELETE http://localhost:3000/api/sessions/old-session
 
-# 3. Restart server secara berkala
+# 3. Restart server periodically
 npm run restart
 ```
 
@@ -154,26 +154,26 @@ npm run restart
 Connection closed. Reconnecting: false
 ```
 
-**Penyebab:**
-- Akun WhatsApp di-logout dari web
-- Device pairing di-revoke
+**Cause:**
+- WhatsApp account logged out from web
+- Device pairing revoked
 
-**Solusi:**
+**Solution:**
 ```bash
-# 1. Session otomatis akan dihapus
-# 2. Buat session baru
+# 1. Session will be automatically deleted
+# 2. Create new session
 curl -X POST http://localhost:3000/api/sessions/create \
   -H "Content-Type: application/json" \
   -d '{"sessionId": "new-session"}'
 
-# 3. Scan QR code ulang
+# 3. Scan QR code again
 ```
 
-## 🚀 Best Practices untuk Production
+## 🚀 Best Practices for Production
 
 ### 1. Session Management
 ```javascript
-// Implementasi health check untuk sessions
+// Implement health check for sessions
 const checkAllSessions = async () => {
   const sessions = await fetch('http://localhost:3000/api/sessions');
   const data = await sessions.json();
@@ -181,12 +181,12 @@ const checkAllSessions = async () => {
   for (const [sessionId, session] of Object.entries(data.data.sessions)) {
     if (!session.isConnected) {
       console.log(`⚠️ Session ${sessionId} disconnected`);
-      // Auto restart atau notifikasi
+      // Auto restart or notification
     }
   }
 };
 
-// Jalankan setiap 5 menit
+// Run every 5 minutes
 setInterval(checkAllSessions, 5 * 60 * 1000);
 ```
 
@@ -207,8 +207,8 @@ const sendOTPWithRetry = async (sessionId, phoneNumber, maxRetries = 3) => {
         return result;
       }
       
-      // Jika session tidak terhubung, coba restart
-      if (result.message.includes('tidak terhubung')) {
+      // If session not connected, try restart
+      if (result.message.includes('not connected')) {
         await fetch(`http://localhost:3000/api/sessions/${sessionId}/restart`, {
           method: 'PUT'
         });
@@ -234,7 +234,7 @@ const canSendOTP = (phoneNumber) => {
   const now = Date.now();
   const lastSent = rateLimiter.get(phoneNumber) || 0;
   
-  // 1 OTP per 60 detik per nomor
+  // 1 OTP per 60 seconds per number
   if (now - lastSent < 60000) {
     return false;
   }
@@ -253,11 +253,11 @@ const monitor = {
   activeSessions: 0
 };
 
-// Log metrics setiap jam
+// Log metrics every hour
 setInterval(() => {
   console.log('📊 Metrics:', monitor);
   
-  // Alert jika failure rate tinggi
+  // Alert if failure rate is high
   const failureRate = monitor.failedRequests / monitor.totalOTPSent;
   if (failureRate > 0.1) { // 10% failure rate
     console.log('🚨 High failure rate detected!');
@@ -268,7 +268,7 @@ setInterval(() => {
 
 ## 📞 Support
 
-Jika masih mengalami masalah:
+If you're still experiencing issues:
 
 1. **Check Logs:**
    ```bash
@@ -297,8 +297,8 @@ Jika masih mengalami masalah:
    - Node.js version: `node --version` (recommended: v16+)
    - NPM version: `npm --version`
    - Available memory: Check system resources
-   - Network connectivity: Pastikan bisa akses internet
+   - Network connectivity: Ensure internet access
 
 ---
 
-**💡 Tips:** Selalu monitor log aplikasi untuk debug masalah lebih lanjut! 
+**💡 Tips:** Always monitor application logs for further debugging! 

@@ -2,16 +2,16 @@
 
 ## 📋 Overview
 
-WhatsApp OTP API sekarang terintegrasi dengan database (MySQL/SQLite) untuk menyimpan:
-- **Session Information**: Status koneksi WhatsApp, user info, timestamps
-- **Activity Logs**: Semua aktivitas API dan message tracking
-- **OTP Logs**: Tracking OTP yang dikirim dan verifikasi
+WhatsApp OTP API is now integrated with database (MySQL/SQLite) to store:
+- **Session Information**: WhatsApp connection status, user info, timestamps
+- **Activity Logs**: All API activities and message tracking
+- **OTP Logs**: Track sent OTPs and verification
 
 ## 🗄️ Database Configuration
 
 ### Environment Variables
 
-Salin file konfigurasi:
+Copy configuration file:
 ```bash
 cp config/env.example .env
 ```
@@ -61,7 +61,7 @@ CREATE TABLE activity_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sessionId VARCHAR(100) NOT NULL,
   action ENUM('session_create', 'session_delete', 'session_restart', 'qr_generate', 'qr_scan', 'connection_open', 'connection_close', 'message_send', 'message_receive', 'otp_send', 'file_upload', 'api_call') NOT NULL,
-  messageType ENUM('text', 'image', 'video', 'audio', 'document', 'location', 'button', 'list', 'otp'),
+  messageType ENUM('text', 'image', 'video', 'audio', 'document', 'location', 'otp'),
   phoneNumber VARCHAR(20),
   messageId VARCHAR(100),
   status ENUM('success', 'error', 'pending') DEFAULT 'pending',
@@ -99,19 +99,19 @@ CREATE TABLE otp_logs (
 );
 ```
 
-## 🚀 Setup Database
+## 🚀 Database Setup
 
 ### Initial Migration
 ```bash
 npm run db:migrate
 ```
 
-### Force Reset (⚠️ Data akan hilang)
+### Force Reset (⚠️ Data will be lost)
 ```bash
 npm run db:migrate -- --force
 ```
 
-## 📡 API Endpoints Baru
+## 📡 New API Endpoints
 
 ### Analytics & Statistics
 
@@ -191,7 +191,7 @@ Content-Type: application/json
 {
   "phoneNumber": "081234567890",
   "sessionId": "abc",
-  "companyName": "PT. Contoh"
+  "companyName": "PT. Example"
 }
 ```
 
@@ -260,7 +260,7 @@ const otp = await OTPLog.createOTP({
   phoneNumber: '628123456789',
   otp: '123456',
   messageId: 'msg_123',
-  companyName: 'PT. Contoh'
+  companyName: 'PT. Example'
 });
 
 // Verify OTP
@@ -277,9 +277,9 @@ const recent = await OTPLog.getRecentOTP('628123456789');
 ## 🧹 Automatic Cleanup
 
 ### Scheduled Cleanup
-- **Activity Logs**: Dihapus setelah 30 hari (daily at 2 AM)
-- **OTP Logs**: Dihapus setelah 7 hari (daily at 2 AM)  
-- **Expired OTPs**: Diupdate status setiap menit
+- **Activity Logs**: Deleted after 30 days (daily at 2 AM)
+- **OTP Logs**: Deleted after 7 days (daily at 2 AM)  
+- **Expired OTPs**: Status updated every minute
 
 ### Manual Cleanup
 ```http
@@ -321,9 +321,9 @@ curl "http://localhost:3000/api/analytics/logs/otp?status=verified&limit=50"
 ## 🔒 Security & Privacy
 
 ### Data Protection
-- **OTP Values**: Tidak di-expose di API responses
-- **Sensitive Data**: Request/response data bisa difilter
-- **Rate Limiting**: Built-in untuk prevent spam
+- **OTP Values**: Not exposed in API responses
+- **Sensitive Data**: Request/response data can be filtered
+- **Rate Limiting**: Built-in to prevent spam
 
 ### Access Control
 ```javascript
@@ -374,18 +374,18 @@ await sequelize.query(`
 
 ---
 
-## 📖 Migration dari Versi Lama
+## 📖 Migration from Old Version
 
-Jika Anda upgrade dari versi tanpa database:
+If you're upgrading from version without database:
 
-1. **Backup data lama** (sessions folder)
+1. **Backup old data** (sessions folder)
 2. **Install dependencies**: `npm install`
 3. **Setup environment**: `cp config/env.example .env`
 4. **Run migration**: `npm run db:migrate`
 5. **Start server**: `npm start`
 
-Data session yang ada di memory akan otomatis tersinkronisasi ke database saat pertama kali connect.
+Existing session data in memory will automatically sync to database on first connect.
 
 ---
 
-**💡 Tips:** Gunakan endpoint analytics untuk monitoring real-time dan troubleshooting issues! 
+**💡 Tips:** Use analytics endpoints for real-time monitoring and troubleshooting issues! 

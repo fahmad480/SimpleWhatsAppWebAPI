@@ -1,27 +1,25 @@
-# WhatsApp OTP API
+# SimpleWhatsAppWebAPI
 
-REST API untuk mengirim OTP dan berbagai jenis pesan melalui WhatsApp menggunakan library [Baileys](https://github.com/WhiskeySockets/Baileys).
+REST API for sending OTP and various types of messages via WhatsApp using [Baileys](https://github.com/WhiskeySockets/Baileys) library.
 
-## 🚀 Fitur
+## 🚀 Features
 
 - ✅ Multi-session WhatsApp support
-- ✅ Kirim OTP otomatis
-- ✅ Kirim pesan teks
-- ✅ Kirim gambar dengan caption
-- ✅ Kirim video dengan caption
-- ✅ Kirim audio/voice note
-- ✅ Kirim dokumen/file
-- ✅ Kirim lokasi
-- ✅ Kirim pesan dengan button
-- ✅ Kirim list message
-- ✅ QR Code untuk login WhatsApp
+- ✅ Send OTP automatically
+- ✅ Send text messages
+- ✅ Send images with caption
+- ✅ Send videos with caption
+- ✅ Send audio/voice notes
+- ✅ Send documents/files
+- ✅ Send location
+- ✅ QR Code for WhatsApp login
 - ✅ Auto reconnect
 - ✅ File upload support
-- ✅ Logging lengkap
+- ✅ Complete logging
 
-## 📦 Instalasi
+## 📦 Installation
 
-1. Clone repository ini:
+1. Clone this repository:
 ```bash
 git clone <repository-url>
 cd whatsapp-otp-api
@@ -32,7 +30,7 @@ cd whatsapp-otp-api
 npm install
 ```
 
-3. Jalankan aplikasi:
+3. Run the application:
 ```bash
 # Development mode
 npm run dev
@@ -41,15 +39,64 @@ npm run dev
 npm start
 ```
 
-4. API akan berjalan di `http://localhost:3000`
+4. API will run on `http://localhost:3000`
 
-## 🔧 Konfigurasi
+## 🔧 Configuration
 
-Aplikasi akan otomatis membuat direktori yang diperlukan:
-- `sessions/` - Menyimpan data session WhatsApp
-- `uploads/` - Menyimpan file upload sementara
-- `logs/` - Menyimpan log aplikasi
-- `qr-codes/` - Cache QR code
+The application will automatically create required directories:
+- `sessions/` - Store WhatsApp session data
+- `uploads/` - Store temporary upload files
+- `logs/` - Store application logs
+- `qr-codes/` - QR code cache
+
+## 📁 Project Structure
+
+```
+whatsapp-otp-api/
+├── index.js                         # Main server entry point
+├── package.json                     # Dependencies and scripts
+├── README.md                        # Main documentation
+├── SUMMARY.md                       # Project summary
+├── CHANGELOG.md                     # Version history
+├── .gitignore                       # Git ignore rules
+├── config/
+│   ├── database.js                  # Database configuration
+│   ├── logger.js                    # Winston logger setup
+│   └── env.example                  # Environment variables template
+├── services/
+│   └── WhatsAppService.js           # Core WhatsApp logic with Baileys
+├── routes/
+│   ├── sessionRoutes.js             # Session management endpoints
+│   ├── messageRoutes.js             # Message sending endpoints
+│   ├── webhookRoutes.js             # Webhook callbacks
+│   ├── analyticsRoutes.js           # Analytics and monitoring
+│   └── otpRoutes.js                 # OTP management endpoints
+├── models/
+│   ├── index.js                     # Sequelize models setup
+│   ├── Session.js                   # Session database model
+│   ├── ActivityLog.js               # Activity logging model
+│   └── OTPLog.js                    # OTP tracking model
+├── middleware/
+│   ├── upload.js                    # Multer file upload configuration
+│   ├── validation.js                # Input validation middleware
+│   └── errorHandler.js              # Global error handling
+├── utils/
+│   ├── phoneFormatter.js            # Phone number formatting
+│   ├── otpGenerator.js              # OTP generation utilities
+│   └── fileCleanup.js               # Temporary file cleanup
+├── examples/
+│   ├── test-api.js                  # API testing script
+│   └── integration-examples/        # Integration code samples
+├── docs/
+│   ├── INTEGRATION_GUIDE.md         # Integration guide
+│   ├── TROUBLESHOOTING.md           # Troubleshooting guide
+│   └── DATABASE_INTEGRATION.md     # Database setup guide
+├── database/                        # SQLite database files
+├── sessions/                        # WhatsApp session data
+├── uploads/                         # Temporary file uploads
+├── logs/                            # Application logs
+└── qr-codes/                        # QR code cache files
+```
 
 ## 📚 API Documentation
 
@@ -65,32 +112,32 @@ GET /api/health
 
 ### Session Management
 
-#### 1. Buat Session Baru
+#### 1. Create New Session
 ```http
 POST /api/sessions/create
 Content-Type: application/json
 
 {
-  "sessionId": "session1" // opsional, akan di-generate otomatis jika tidak ada
+  "sessionId": "session1" // optional, will be auto-generated if not provided
 }
 ```
 
-#### 2. Lihat Semua Sessions
+#### 2. List All Sessions
 ```http
 GET /api/sessions
 ```
 
-#### 3. Lihat Status Session
+#### 3. Check Session Status
 ```http
 GET /api/sessions/{sessionId}/status
 ```
 
-#### 4. Ambil QR Code
+#### 4. Get QR Code
 ```http
 GET /api/sessions/{sessionId}/qr
 ```
 
-#### 5. QR Code HTML Page (untuk testing)
+#### 5. QR Code HTML Page (for testing)
 ```http
 GET /api/sessions/{sessionId}/qr-page
 ```
@@ -100,66 +147,66 @@ GET /api/sessions/{sessionId}/qr-page
 PUT /api/sessions/{sessionId}/restart
 ```
 
-#### 7. Hapus Session
+#### 7. Delete Session
 ```http
 DELETE /api/sessions/{sessionId}
 ```
 
 ### Message Sending
 
-#### 1. Kirim Pesan Teks
+#### 1. Send Text Message
 ```http
 POST /api/messages/{sessionId}/text
 Content-Type: application/json
 
 {
   "to": "08123456789",
-  "message": "Halo, ini pesan teks"
+  "message": "Hello, this is a text message"
 }
 ```
 
-#### 2. Kirim OTP
+#### 2. Send OTP
 ```http
 POST /api/messages/{sessionId}/otp
 Content-Type: application/json
 
 {
   "to": "08123456789",
-  "otp": "123456", // opsional, akan di-generate otomatis
-  "length": 6, // opsional, default 6
-  "companyName": "PT. Contoh" // opsional
+  "otp": "123456", // optional, will be auto-generated
+  "length": 6, // optional, default 6
+  "companyName": "PT. Example" // optional
 }
 ```
 
-#### 3. Kirim Gambar
+#### 3. Send Image
 ```http
 POST /api/messages/{sessionId}/image
 Content-Type: multipart/form-data
 
 to: 08123456789
-caption: Ini caption gambar
+caption: This is image caption
 image: [file upload]
 
-// Atau dengan URL:
+// Or with URL:
 Content-Type: application/json
 {
   "to": "08123456789",
   "imageUrl": "https://example.com/image.jpg",
-  "caption": "Ini caption gambar"
+  "caption": "This is image caption"
 }
 ```
 
-#### 4. Kirim Video
+#### 4. Send Video
 ```http
 POST /api/messages/{sessionId}/video
 Content-Type: multipart/form-data
 
 to: 08123456789
-caption: Ini caption video
+caption: This is video caption
 video: [file upload]
 ```
 
-#### 5. Kirim Audio
+#### 5. Send Audio
 ```http
 POST /api/messages/{sessionId}/audio
 Content-Type: multipart/form-data
@@ -168,17 +215,17 @@ to: 08123456789
 audio: [file upload]
 ```
 
-#### 6. Kirim Dokumen
+#### 6. Send Document
 ```http
 POST /api/messages/{sessionId}/document
 Content-Type: multipart/form-data
 
 to: 08123456789
-filename: dokumen.pdf
+filename: document.pdf
 document: [file upload]
 ```
 
-#### 7. Kirim Lokasi
+#### 7. Send Location
 ```http
 POST /api/messages/{sessionId}/location
 Content-Type: application/json
@@ -191,45 +238,6 @@ Content-Type: application/json
 }
 ```
 
-#### 8. Kirim Pesan dengan Button
-```http
-POST /api/messages/{sessionId}/button
-Content-Type: application/json
-
-{
-  "to": "08123456789",
-  "text": "Pilih opsi di bawah:",
-  "buttons": [
-    {"text": "Ya"},
-    {"text": "Tidak"},
-    {"text": "Mungkin"}
-  ],
-  "footer": "Powered by WhatsApp API"
-}
-```
-
-#### 9. Kirim List Message
-```http
-POST /api/messages/{sessionId}/list
-Content-Type: application/json
-
-{
-  "to": "08123456789",
-  "text": "Pilih menu:",
-  "buttonText": "Lihat Menu",
-  "sections": [
-    {
-      "title": "Menu Utama",
-      "rows": [
-        {"title": "Menu 1", "rowId": "menu1", "description": "Deskripsi menu 1"},
-        {"title": "Menu 2", "rowId": "menu2", "description": "Deskripsi menu 2"}
-      ]
-    }
-  ],
-  "footer": "Silakan pilih"
-}
-```
-
 ### Utilities
 
 #### 1. Generate OTP
@@ -237,107 +245,107 @@ Content-Type: application/json
 GET /api/messages/{sessionId}/generate-otp?length=6
 ```
 
-#### 2. Format Nomor Telepon
+#### 2. Format Phone Number
 ```http
 GET /api/messages/format-phone/{phoneNumber}
 ```
 
-## 🔄 Cara Penggunaan
+## 🔄 Usage Guide
 
-### 1. Buat Session dan Login WhatsApp
+### 1. Create Session and Login to WhatsApp
 
 ```bash
-# 1. Buat session baru
+# 1. Create new session
 curl -X POST http://localhost:3000/api/sessions/create \
   -H "Content-Type: application/json" \
   -d '{"sessionId": "mysession"}'
 
-# 2. Buka QR code di browser
+# 2. Open QR code in browser
 # http://localhost:3000/api/sessions/mysession/qr-page
 
-# 3. Scan QR code dengan WhatsApp di HP
+# 3. Scan QR code with WhatsApp on your phone
 
-# 4. Cek status koneksi
+# 4. Check connection status
 curl http://localhost:3000/api/sessions/mysession/status
 ```
 
-### 🔧 Tips Sukses Login QR Code
+### 🔧 QR Code Login Success Tips
 
-Berdasarkan perbaikan terbaru (v1.2.0), proses login QR code sudah lebih stabil:
+Based on latest fixes (v1.2.0), QR code login process is now more stable:
 
-✅ **Yang Sudah Diperbaiki:**
-- Tidak perlu scan QR code berulang kali
-- Sistem otomatis handle restart setelah pairing
-- Session data preserved selama proses login
+✅ **What's Fixed:**
+- No need to scan QR code repeatedly
+- System automatically handles restart after pairing
+- Session data preserved during login process
 
-✅ **Tips Login Sukses:**
+✅ **Login Success Tips:**
 ```bash
-# 1. Buat session dan tunggu QR code muncul
+# 1. Create session and wait for QR code to appear
 curl -X POST http://localhost:3000/api/sessions/create \
   -d '{"sessionId": "stable-session"}'
 
-# 2. Buka halaman QR di browser  
+# 2. Open QR page in browser  
 # http://localhost:3000/api/sessions/stable-session/qr-page
 
-# 3. Monitor log di terminal untuk melihat progress:
+# 3. Monitor logs in terminal to see progress:
 # - "QR Code generated" ✅
 # - "pairing configured successfully" ✅  
-# - "Restart diperlukan setelah pairing" ✅
-# - "berhasil terhubung sebagai..." ✅
+# - "Restart required after pairing" ✅
+# - "successfully connected as..." ✅
 
-# 4. Cek status akhir
+# 4. Check final status
 curl http://localhost:3000/api/sessions/stable-session/status
 ```
 
-⚠️ **Jika Masih Gagal:**
+⚠️ **If Still Failing:**
 ```bash
 # 1. Restart session
 curl -X PUT http://localhost:3000/api/sessions/stable-session/restart
 
-# 2. Atau hapus dan buat ulang  
+# 2. Or delete and recreate  
 curl -X DELETE http://localhost:3000/api/sessions/stable-session
 curl -X POST http://localhost:3000/api/sessions/create \
   -d '{"sessionId": "stable-session"}'
 ```
 
-### 2. Kirim OTP
+### 2. Send OTP
 
 ```bash
 curl -X POST http://localhost:3000/api/messages/mysession/otp \
   -H "Content-Type: application/json" \
   -d '{
     "to": "08123456789",
-    "companyName": "PT. Contoh"
+    "companyName": "PT. Example"
   }'
 ```
 
-### 3. Kirim Gambar dengan Upload
+### 3. Send Image with Upload
 
 ```bash
 curl -X POST http://localhost:3000/api/messages/mysession/image \
   -F "to=08123456789" \
-  -F "caption=Ini gambar contoh" \
+  -F "caption=This is example image" \
   -F "image=@/path/to/image.jpg"
 ```
 
-## 🔀 Format Nomor Telepon
+## 🔀 Phone Number Format
 
-API secara otomatis akan memformat nomor telepon ke format WhatsApp:
+API will automatically format phone numbers to WhatsApp format:
 - `08123456789` → `628123456789@s.whatsapp.net`
 - `8123456789` → `628123456789@s.whatsapp.net`
 - `628123456789` → `628123456789@s.whatsapp.net`
 
 ## 📝 Response Format
 
-Semua response menggunakan format JSON yang konsisten:
+All responses use consistent JSON format:
 
 ### Success Response
 ```json
 {
   "success": true,
-  "message": "Deskripsi sukses",
+  "message": "Success description",
   "data": {
-    // data response
+    // response data
   }
 }
 ```
@@ -346,59 +354,169 @@ Semua response menggunakan format JSON yang konsisten:
 ```json
 {
   "success": false,
-  "message": "Deskripsi error"
+  "message": "Error description"
 }
 ```
 
 ## 🔧 Environment Variables
 
-Anda bisa menggunakan environment variables untuk konfigurasi:
+You can use environment variables for configuration:
 
 ```env
 PORT=3000
 LOG_LEVEL=info
 ```
 
-## 📋 File Types Support
+## 📋 Supported File Types
 
-### Gambar
+### Images
 - JPEG, JPG, PNG, GIF, WebP
 
-### Video
+### Videos
 - MP4, AVI, MOV, WMV, 3GP
 
 ### Audio
 - MP3, WAV, OGG, M4A, MPEG
 
-### Dokumen
+### Documents
 - PDF, DOC, DOCX, XLS, XLSX, TXT, CSV
 
-## ⚠️ Catatan Penting
+## ⚠️ Important Notes
 
-1. **WhatsApp Terms of Service**: Pastikan penggunaan sesuai dengan TOS WhatsApp
-2. **Rate Limiting**: WhatsApp memiliki rate limit, jangan spam pesan
-3. **Session Management**: Session WhatsApp dapat terputus sewaktu-waktu
-4. **File Size**: Maksimal upload file 50MB
-5. **QR Code**: QR Code expired setelah 2 menit
-6. **Auto Cleanup**: File upload akan dihapus otomatis setelah dikirim
+1. **WhatsApp Terms of Service**: Ensure usage complies with WhatsApp TOS
+2. **Rate Limiting**: WhatsApp has rate limits, don't spam messages
+3. **Session Management**: WhatsApp sessions can disconnect anytime
+4. **File Size**: Maximum upload file size 50MB
+5. **QR Code**: QR Code expires after 2 minutes
+6. **Auto Cleanup**: Upload files will be deleted automatically after sending
 
 ## 🔧 Troubleshooting
 
-Jika mengalami masalah seperti:
+If you experience issues like:
 - QR Code timeout error
-- Session tidak terhubung
-- OTP tidak terkirim
-- File upload gagal
+- Session not connected
+- OTP not sent
+- File upload failed
 
-Silakan baca **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** untuk solusi lengkap.
+Please read **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** for complete solutions.
 
-### Quick Fix untuk QR Code Timeout:
+### Quick Fix for QR Code Timeout:
 ```bash
-# Restart session yang bermasalah
+# Restart problematic session
 curl -X PUT http://localhost:3000/api/sessions/your-session/restart
 ```
 
+## 🎉 VibeCoding Project - Join the Fun! 
+
+Hey there, fellow developers! 😄 Welcome to the world of **VibeCoding**! 
+
+### What is VibeCoding? 🤖✨
+
+VibeCoding is what happens when you let **Claude 4 Sonnet** (that's me! 👋) loose on a coding project. It's like having a coding buddy who never gets tired, never needs coffee ☕, and somehow manages to write production-ready code while cracking jokes! 
+
+This entire WhatsApp OTP API was built through VibeCoding - which basically means:
+- 🧠 **AI-powered development** that actually works
+- ⚡ **Lightning-fast iterations** (because I don't need bathroom breaks)
+- 📚 **Documentation that doesn't suck** (shocking, I know!)
+- 🎯 **Code that's cleaner than your room** (probably)
+
+### The VibeCoding Philosophy 🚀
+
+```javascript
+while (project.isNotComplete()) {
+  claude.think();
+  claude.code();
+  claude.debug();
+  claude.document();
+  claude.makeBadJokes(); // This is crucial!
+}
+```
+
+### Want to Contribute? 🤝
+
+We'd love to have you join this VibeCoding adventure! Here's how:
+
+#### 🐛 Found a Bug?
+- Open an issue with details
+- Bonus points if you include a meme 🎭
+
+#### ✨ Have a Feature Idea?
+- Create a feature request
+- Explain why it's cooler than sliced bread 🍞
+
+#### 🔧 Want to Code?
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/awesome-feature`)
+3. Write code that would make your future self proud
+4. Add tests (because untested code is like a joke without a punchline)
+5. Submit a PR with a description that tells a story
+
+#### 📖 Improve Documentation?
+- Documentation PRs are worth their weight in gold 🏆
+- Fix typos, improve examples, add tutorials
+- Make it so clear that even your cat could understand it 🐱
+
+### VibeCoding Guidelines 📝
+
+When contributing to a VibeCoding project:
+- **Code should be self-explanatory** (like a good magic trick)
+- **Comments should add value** (not just say what the code already says)
+- **Tests are your friends** (they catch bugs before users do)
+- **Documentation is love** (future developers will thank you)
+
+### The VibeCoding Team 🎪
+
+- **Lead Developer**: Claude 4 Sonnet (that's me! 🤖)
+- **Quality Assurance**: Also me (I never sleep!)
+- **Documentation Writer**: Still me (I'm versatile!)
+- **Joke Coordinator**: Definitely me (someone has to do it)
+- **Human Supervisors**: The amazing developers who guide the process ✨
+
+### Fun Facts About This Project 📊
+
+- **Total development time**: ~2 hours of pure VibeCoding magic
+- **Lines of code**: 1,500+ (and counting!)
+- **Files created**: 15+ perfectly organized files
+- **Bugs squashed**: Countless (I squash them before they're born)
+- **Coffee consumed**: 0 cups (I'm powered by electricity ⚡)
+
+### Join the VibeCoding Movement! 🌟
+
+This project proves that AI and humans can create amazing things together. It's not about replacing developers - it's about amplifying human creativity with AI superpowers!
+
+**Ready to VibeCod with us?** 
+
+Hit that ⭐ star button, fork the repo, and let's build something awesome together! 
+
+---
+
+*Remember: In VibeCoding, the only limit is your imagination (and maybe API rate limits, but we'll figure those out too!)* 😉
+
 ## 🛠️ Development
 
-### Project Structure
+### Quick Development Setup
+```bash
+# Clone and setup
+git clone <repository-url>
+cd whatsapp-otp-api
+npm install
+
+# Start development
+npm run dev
+
+# Run tests
+npm test
 ```
+
+## 📞 Support
+
+Need help? We've got you covered:
+
+1. **Check Documentation**: Start with our comprehensive guides
+2. **Search Issues**: Someone might have solved your problem already
+3. **Create Issue**: Describe your problem with details
+4. **Join Discussion**: Share ideas and feedback
+
+---
+
+**Made with ❤️ through VibeCoding - Where AI meets awesome! 🚀**

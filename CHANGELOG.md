@@ -3,75 +3,75 @@
 ## [1.2.0] - 2025-06-05
 
 ### 🐛 Major Bug Fix
-- **QR Code Scan Always Restart**: Memperbaiki masalah di mana setiap kali scan QR code berhasil, sistem selalu meminta restart dan scan ulang
-- **Smart Reconnection Logic**: Implementasi logic reconnection yang cerdas untuk membedakan restart setelah pairing vs error normal
-- **Session Data Preservation**: Data pairing tidak lagi dihapus saat restart diperlukan oleh WhatsApp
+- **QR Code Scan Always Restart**: Fixed issue where every successful QR code scan would always require restart and rescan
+- **Smart Reconnection Logic**: Implemented intelligent reconnection logic to differentiate restart after pairing vs normal errors
+- **Session Data Preservation**: Pairing data no longer deleted when restart is required by WhatsApp
 
 ### ✨ New Features  
-- **`reconnectSession()` Method**: Method baru untuk reconnect tanpa menghapus session data
-- **Enhanced Error Handling**: Improved handling untuk stream error 515 (restart required after pairing)
-- **Better Logging**: Menambahkan status code logging untuk debugging
+- **`reconnectSession()` Method**: New method for reconnecting without deleting session data
+- **Enhanced Error Handling**: Improved handling for stream error 515 (restart required after pairing)
+- **Better Logging**: Added status code logging for debugging
 
 ### 🔧 Technical Improvements
 ```javascript
-// Sebelum (bermasalah):
+// Before (problematic):
 if (shouldReconnect) {
-  await this.removeSession(sessionId); // ❌ Menghapus data pairing
+  await this.removeSession(sessionId); // ❌ Deletes pairing data
   setTimeout(() => {
-    this.createSession(sessionId); // ❌ Harus scan QR lagi
+    this.createSession(sessionId); // ❌ Must scan QR again
   }, 5000);
 }
 
-// Setelah (fixed):
-if (statusCode === 515) { // Stream error setelah pairing
-  // ✅ Preserve session data, hanya restart socket
+// After (fixed):
+if (statusCode === 515) { // Stream error after pairing
+  // ✅ Preserve session data, only restart socket
   setTimeout(() => {
-    this.reconnectSession(sessionId); // ✅ Gunakan data pairing existing
+    this.reconnectSession(sessionId); // ✅ Use existing pairing data
   }, 3000);
 } else {
-  // ✅ Untuk error lain, hapus session seperti biasa
+  // ✅ For other errors, delete session as usual
   await this.removeSession(sessionId);
 }
 ```
 
 ### 📈 Impact
-- **Login Success Rate**: Meningkat dari ~30% ke ~95%
-- **User Experience**: Tidak perlu scan QR code berulang kali
-- **Stability**: Reconnection lebih stabil dan predictable
+- **Login Success Rate**: Increased from ~30% to ~95%
+- **User Experience**: No need to scan QR code repeatedly
+- **Stability**: More stable and predictable reconnection
 
 ---
 
 ## [1.1.0] - 2025-06-05
 
 ### 🐛 Bug Fixes
-- **QR Code Timeout Error**: Memperbaiki error "Session sudah ada" saat QR code timeout
-- **Reconnection Logic**: Perbaikan logic reconnection untuk menghindari konflik session
-- **Session Management**: Improved session cleanup dan error handling
+- **QR Code Timeout Error**: Fixed "Session already exists" error when QR code times out
+- **Reconnection Logic**: Improved reconnection logic to avoid session conflicts
+- **Session Management**: Enhanced session cleanup and error handling
 
 ### ✨ Improvements
-- **Error Handling**: Lebih robust error handling untuk logout dan file operations
-- **Method Baru**: Menambahkan `recreateSession()` method untuk restart session yang aman
-- **Logging**: Better logging untuk debug reconnection issues
+- **Error Handling**: More robust error handling for logout and file operations
+- **New Method**: Added `recreateSession()` method for safe session restart
+- **Logging**: Better logging for debugging reconnection issues
 
 ### 📝 Documentation
-- **Troubleshooting Guide**: Menambahkan panduan lengkap troubleshooting
-- **README Update**: Menambahkan section troubleshooting
-- **Quick Fix**: Dokumentasi quick fix untuk masalah umum
+- **Troubleshooting Guide**: Added comprehensive troubleshooting guide
+- **README Update**: Added troubleshooting section
+- **Quick Fix**: Documentation of quick fixes for common issues
 
 ### 🔧 Technical Changes
 ```javascript
-// Sebelum (bermasalah):
+// Before (problematic):
 if (shouldReconnect) {
   setTimeout(() => {
-    this.createSession(sessionId); // Error: Session sudah ada
+    this.createSession(sessionId); // Error: Session already exists
   }, 5000);
 }
 
-// Setelah (fixed):
+// After (fixed):
 if (shouldReconnect) {
-  await this.removeSession(sessionId); // Hapus dulu
+  await this.removeSession(sessionId); // Remove first
   setTimeout(() => {
-    this.createSession(sessionId); // Aman
+    this.createSession(sessionId); // Safe
   }, 5000);
 }
 ```
@@ -88,16 +88,16 @@ if (shouldReconnect) {
 
 ### 🎉 Initial Release
 - Multi-session WhatsApp support
-- Berbagai jenis pesan (Text, OTP, Image, Video, Audio, Document, Location, Button, List)
-- REST API lengkap dengan Express.js
-- QR Code login dengan web interface
-- File upload dengan validasi
-- Auto cleanup dan logging
+- Various message types (Text, OTP, Image, Video, Audio, Document, Location)
+- Complete REST API with Express.js
+- QR Code login with web interface
+- File upload with validation
+- Auto cleanup and logging
 - Comprehensive documentation
 
 ### 📦 Features
 - ✅ Multi-session management
-- ✅ OTP generation dan sending
+- ✅ OTP generation and sending
 - ✅ File upload support (50MB limit)
 - ✅ Auto reconnect
 - ✅ Health check endpoints
@@ -107,11 +107,11 @@ if (shouldReconnect) {
 
 ### 🔗 API Endpoints
 - Session management (7 endpoints)
-- Message sending (9 endpoints)  
+- Message sending (7 endpoints)  
 - Utility endpoints (3 endpoints)
 - Webhook support
 
 ### 📚 Documentation
-- README.md - Dokumentasi lengkap
-- INTEGRATION_GUIDE.md - Panduan integrasi
-- Examples dan testing scripts 
+- README.md - Complete documentation
+- INTEGRATION_GUIDE.md - Integration guide
+- Examples and testing scripts 

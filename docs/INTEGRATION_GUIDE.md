@@ -1,32 +1,32 @@
-# Panduan Integrasi WhatsApp OTP API
+# WhatsApp OTP API Integration Guide
 
-## 📋 Daftar Isi
+## 📋 Table of Contents
 
 1. [Quick Start](#quick-start)
 2. [Authentication & Session](#authentication--session)
-3. [Mengirim OTP](#mengirim-otp)
-4. [Contoh Implementasi](#contoh-implementasi)
+3. [Sending OTP](#sending-otp)
+4. [Implementation Examples](#implementation-examples)
 5. [Error Handling](#error-handling)
 6. [Best Practices](#best-practices)
 
 ## Quick Start
 
-### 1. Persiapan
+### 1. Preparation
 
 ```bash
-# Clone dan install
+# Clone and install
 git clone <repository-url>
 cd whatsapp-otp-api
 npm install
 
-# Jalankan server
+# Run server
 npm start
 ```
 
-### 2. Buat Session WhatsApp
+### 2. Create WhatsApp Session
 
 ```javascript
-// 1. Buat session baru
+// 1. Create new session
 const response = await fetch('http://localhost:3000/api/sessions/create', {
   method: 'POST',
   headers: {
@@ -44,16 +44,16 @@ console.log('Session ID:', result.data.sessionId);
 ### 3. Login WhatsApp
 
 ```javascript
-// Buka QR code di browser
+// Open QR code in browser
 window.open('http://localhost:3000/api/sessions/my-session/qr-page');
 
-// Atau ambil QR code data
+// Or get QR code data
 const qrResponse = await fetch('http://localhost:3000/api/sessions/my-session/qr');
 const qrData = await qrResponse.json();
 console.log('QR Code:', qrData.data.qrCode); // Base64 image
 ```
 
-### 4. Cek Status Koneksi
+### 4. Check Connection Status
 
 ```javascript
 const checkConnection = async () => {
@@ -61,16 +61,16 @@ const checkConnection = async () => {
   const data = await response.json();
   
   if (data.data.isConnected) {
-    console.log('✅ WhatsApp terhubung!');
+    console.log('✅ WhatsApp connected!');
     console.log('User:', data.data.user);
     return true;
   }
   
-  console.log('⏳ Belum terhubung...');
+  console.log('⏳ Not connected yet...');
   return false;
 };
 
-// Polling sampai terhubung
+// Poll until connected
 const waitForConnection = async () => {
   while (!(await checkConnection())) {
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -78,7 +78,7 @@ const waitForConnection = async () => {
 };
 ```
 
-### 5. Kirim OTP
+### 5. Send OTP
 
 ```javascript
 const sendOTP = async (phoneNumber) => {
@@ -89,27 +89,27 @@ const sendOTP = async (phoneNumber) => {
     },
     body: JSON.stringify({
       to: phoneNumber,
-      companyName: 'PT. Contoh'
+      companyName: 'PT. Example'
     })
   });
   
   const result = await response.json();
   
   if (result.success) {
-    console.log('✅ OTP terkirim:', result.data.otp);
+    console.log('✅ OTP sent:', result.data.otp);
     return result.data.otp;
   } else {
     throw new Error(result.message);
   }
 };
 
-// Contoh penggunaan
+// Usage example
 const otp = await sendOTP('08123456789');
 ```
 
 ## Authentication & Session
 
-### Membuat Multiple Sessions
+### Creating Multiple Sessions
 
 ```javascript
 const sessions = ['session-1', 'session-2', 'session-3'];
@@ -122,7 +122,7 @@ for (const sessionId of sessions) {
   });
   
   const result = await response.json();
-  console.log(`Session ${sessionId} dibuat:`, result.success);
+  console.log(`Session ${sessionId} created:`, result.success);
 }
 ```
 
@@ -144,21 +144,21 @@ for (const [sessionId, session] of Object.entries(sessions)) {
 }
 ```
 
-## Mengirim OTP
+## Sending OTP
 
-### OTP dengan Template Custom
+### OTP with Custom Template
 
 ```javascript
 const sendCustomOTP = async (phoneNumber, template) => {
-  // Generate OTP dulu
+  // Generate OTP first
   const otpResponse = await fetch('http://localhost:3000/api/messages/my-session/generate-otp?length=6');
   const otpData = await otpResponse.json();
   const otp = otpData.data.otp;
   
-  // Template custom
+  // Custom template
   const message = template.replace('{OTP}', otp);
   
-  // Kirim pesan
+  // Send message
   const response = await fetch('http://localhost:3000/api/messages/my-session/text', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -177,17 +177,17 @@ const sendCustomOTP = async (phoneNumber, template) => {
   }
 };
 
-// Contoh penggunaan
+// Usage example
 const template = `
-🔐 Kode Verifikasi Anda
+🔐 Your Verification Code
 
-Kode OTP: *{OTP}*
+OTP Code: *{OTP}*
 
-Jangan bagikan kode ini kepada siapapun.
-Berlaku 5 menit.
+Don't share this code with anyone.
+Valid for 5 minutes.
 
-Salam,
-Tim Customer Service
+Regards,
+Customer Service Team
 `;
 
 const { otp, messageId } = await sendCustomOTP('08123456789', template);
@@ -196,7 +196,7 @@ const { otp, messageId } = await sendCustomOTP('08123456789', template);
 ### Batch OTP Sending
 
 ```javascript
-const sendBatchOTP = async (phoneNumbers, companyName = 'PT. Contoh') => {
+const sendBatchOTP = async (phoneNumbers, companyName = 'PT. Example') => {
   const results = [];
   
   for (const phoneNumber of phoneNumbers) {
@@ -219,7 +219,7 @@ const sendBatchOTP = async (phoneNumbers, companyName = 'PT. Contoh') => {
         error: result.success ? null : result.message
       });
       
-      // Delay untuk menghindari spam
+      // Delay to avoid spam
       await new Promise(resolve => setTimeout(resolve, 2000));
       
     } catch (error) {
@@ -235,9 +235,9 @@ const sendBatchOTP = async (phoneNumbers, companyName = 'PT. Contoh') => {
   return results;
 };
 
-// Contoh penggunaan
+// Usage example
 const phoneNumbers = ['08123456789', '08987654321', '08111222333'];
-const results = await sendBatchOTP(phoneNumbers, 'PT. Contoh');
+const results = await sendBatchOTP(phoneNumbers, 'PT. Example');
 
 results.forEach(result => {
   if (result.success) {
@@ -248,9 +248,9 @@ results.forEach(result => {
 });
 ```
 
-## Contoh Implementasi
+## Implementation Examples
 
-### Node.js dengan Express
+### Node.js with Express
 
 ```javascript
 const express = require('express');
@@ -262,25 +262,25 @@ app.use(express.json());
 const WHATSAPP_API_BASE = 'http://localhost:3000/api';
 const SESSION_ID = 'main-session';
 
-// Endpoint untuk kirim OTP
+// Endpoint to send OTP
 app.post('/send-otp', async (req, res) => {
   try {
     const { phoneNumber } = req.body;
     
-    // Kirim OTP
+    // Send OTP
     const response = await axios.post(`${WHATSAPP_API_BASE}/messages/${SESSION_ID}/otp`, {
       to: phoneNumber,
-      companyName: 'PT. Contoh'
+      companyName: 'PT. Example'
     });
     
-    // Simpan OTP ke database/cache untuk verifikasi
+    // Save OTP to database/cache for verification
     const otp = response.data.data.otp;
     // await saveOTPToCache(phoneNumber, otp);
     
     res.json({
       success: true,
-      message: 'OTP berhasil dikirim',
-      // Jangan kirim OTP ke frontend untuk keamanan
+      message: 'OTP sent successfully',
+      // Don't send OTP to frontend for security
     });
     
   } catch (error) {
@@ -291,19 +291,19 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// Endpoint untuk verify OTP
+// Endpoint to verify OTP
 app.post('/verify-otp', async (req, res) => {
   try {
     const { phoneNumber, otp } = req.body;
     
-    // Ambil OTP dari cache/database
+    // Get OTP from cache/database
     // const savedOTP = await getOTPFromCache(phoneNumber);
     
     // if (otp === savedOTP) {
     //   await deleteOTPFromCache(phoneNumber);
     //   res.json({ success: true, message: 'OTP valid' });
     // } else {
-    //   res.status(400).json({ success: false, message: 'OTP tidak valid' });
+    //   res.status(400).json({ success: false, message: 'Invalid OTP' });
     // }
     
   } catch (error) {
@@ -312,7 +312,7 @@ app.post('/verify-otp', async (req, res) => {
 });
 
 app.listen(4000, () => {
-  console.log('API berjalan di port 4000');
+  console.log('API running on port 4000');
 });
 ```
 
@@ -329,7 +329,7 @@ class WhatsAppOTPAPI {
         $this->sessionId = $sessionId;
     }
     
-    public function sendOTP($phoneNumber, $companyName = 'PT. Contoh') {
+    public function sendOTP($phoneNumber, $companyName = 'PT. Example') {
         $url = $this->baseUrl . '/messages/' . $this->sessionId . '/otp';
         
         $data = [
@@ -367,19 +367,19 @@ class WhatsAppOTPAPI {
     }
 }
 
-// Contoh penggunaan
+// Usage example
 $whatsapp = new WhatsAppOTPAPI();
 
 if ($whatsapp->checkSessionStatus()) {
-    $result = $whatsapp->sendOTP('08123456789', 'PT. Contoh');
+    $result = $whatsapp->sendOTP('08123456789', 'PT. Example');
     
     if ($result['success']) {
-        echo "OTP berhasil dikirim: " . $result['data']['otp'];
+        echo "OTP sent successfully: " . $result['data']['otp'];
     } else {
         echo "Error: " . $result['message'];
     }
 } else {
-    echo "WhatsApp session belum terhubung";
+    echo "WhatsApp session not connected";
 }
 ?>
 ```
@@ -411,7 +411,7 @@ const handleAPIError = (error) => {
   }
 };
 
-// Contoh penggunaan dengan try-catch
+// Usage example with try-catch
 try {
   const result = await sendOTP('08123456789');
   console.log('Success:', result);
@@ -439,7 +439,7 @@ const retryRequest = async (requestFn, maxRetries = 3, delay = 1000) => {
   }
 };
 
-// Contoh penggunaan
+// Usage example
 const sendOTPWithRetry = async (phoneNumber) => {
   return await retryRequest(async () => {
     const response = await fetch('http://localhost:3000/api/messages/my-session/otp', {
@@ -462,7 +462,7 @@ const sendOTPWithRetry = async (phoneNumber) => {
 ### 1. Session Management
 
 ```javascript
-// Singleton pattern untuk session
+// Singleton pattern for session
 class WhatsAppSessionManager {
   constructor() {
     this.sessions = new Map();
@@ -602,7 +602,7 @@ class OTPManager {
   }
 }
 
-// Auto cleanup setiap 5 menit
+// Auto cleanup every 5 minutes
 const otpManager = new OTPManager();
 setInterval(() => otpManager.cleanup(), 5 * 60 * 1000);
 ```
@@ -653,7 +653,7 @@ class WhatsAppAPIMonitor {
 
 const monitor = new WhatsAppAPIMonitor();
 
-// Contoh penggunaan
+// Usage example
 const monitoredSendOTP = async (phoneNumber) => {
   return await monitor.makeRequest(
     () => sendOTP(phoneNumber),
@@ -664,4 +664,4 @@ const monitoredSendOTP = async (phoneNumber) => {
 
 ---
 
-Dengan panduan ini, Anda dapat mengintegrasikan WhatsApp OTP API ke dalam aplikasi Anda dengan mudah dan aman. Pastikan untuk mengikuti best practices untuk keamanan dan performa yang optimal. 
+With this guide, you can easily integrate WhatsApp OTP API into your application safely and efficiently. Make sure to follow best practices for optimal security and performance. 
