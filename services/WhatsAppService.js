@@ -21,6 +21,9 @@ const cron = require('node-cron');
 // Database models
 const { Session, ActivityLog, OTPLog } = require('../models');
 
+// Google AI Service
+const GoogleAIService = require('./GoogleAIService');
+
 class WhatsAppService {
   constructor() {
     this.sessions = new Map();
@@ -212,15 +215,69 @@ class WhatsAppService {
       sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.key.fromMe && msg.message) {
-          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid}`);
+          const phoneNumber = msg.key.remoteJid?.split('@')[0];
+          const messageText = msg.message?.conversation || 
+                            msg.message?.extendedTextMessage?.text || 
+                            msg.message?.imageMessage?.caption || 
+                            msg.message?.videoMessage?.caption || '';
+          
+          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid} - ${messageText}`);
           
           await this.logActivity({
             sessionId,
             action: 'message_receive',
-            phoneNumber: msg.key.remoteJid?.split('@')[0],
+            phoneNumber: phoneNumber,
             messageId: msg.key.id,
-            status: 'success'
+            status: 'success',
+            details: messageText.substring(0, 100)
           });
+
+          // Cek apakah pesan dari nomor AI chatbot
+          const aiChatbotPhone = process.env.AI_CHATBOT_PHONE || '081220749123';
+          if (phoneNumber === aiChatbotPhone.replace(/^0/, '62')) {
+            try {
+              this.logger.info(`Processing AI chatbot message from ${phoneNumber}: ${messageText}`);
+              
+              // Generate respons AI
+              const aiResponse = await GoogleAIService.generateResponse(phoneNumber, messageText);
+              
+              // Kirim balasan AI
+              await this.sendTextMessage(sessionId, msg.key.remoteJid, aiResponse);
+              
+              await this.logActivity({
+                sessionId,
+                action: 'ai_chatbot_response',
+                phoneNumber: phoneNumber,
+                messageId: msg.key.id,
+                status: 'success',
+                details: `User: ${messageText.substring(0, 50)} | AI: ${aiResponse.substring(0, 50)}`,
+                responseData: { originalMessage: messageText, aiResponse }
+              });
+
+              this.logger.info(`AI chatbot response sent to ${phoneNumber}`);
+              
+            } catch (error) {
+              this.logger.error(`Error processing AI chatbot message from ${phoneNumber}:`, error);
+              
+              await this.logActivity({
+                sessionId,
+                action: 'ai_chatbot_response',
+                phoneNumber: phoneNumber,
+                messageId: msg.key.id,
+                status: 'error',
+                errorMessage: error.message,
+                details: `Failed to process: ${messageText.substring(0, 50)}`
+              });
+
+              // Kirim pesan error yang ramah
+              try {
+                await this.sendTextMessage(sessionId, msg.key.remoteJid, 
+                  'Maaf, saya sedang mengalami gangguan. Coba kirim pesan lagi dalam beberapa menit ya! 🤖');
+              } catch (sendError) {
+                this.logger.error(`Failed to send error message to ${phoneNumber}:`, sendError);
+              }
+            }
+          }
         }
       });
 
@@ -364,7 +421,69 @@ class WhatsAppService {
       sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.key.fromMe && msg.message) {
-          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid}`);
+          const phoneNumber = msg.key.remoteJid?.split('@')[0];
+          const messageText = msg.message?.conversation || 
+                            msg.message?.extendedTextMessage?.text || 
+                            msg.message?.imageMessage?.caption || 
+                            msg.message?.videoMessage?.caption || '';
+          
+          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid} - ${messageText}`);
+          
+          await this.logActivity({
+            sessionId,
+            action: 'message_receive',
+            phoneNumber: phoneNumber,
+            messageId: msg.key.id,
+            status: 'success',
+            details: messageText.substring(0, 100)
+          });
+
+          // Cek apakah pesan dari nomor AI chatbot
+          const aiChatbotPhone = process.env.AI_CHATBOT_PHONE || '081220749123';
+          if (phoneNumber === aiChatbotPhone.replace(/^0/, '62')) {
+            try {
+              this.logger.info(`Processing AI chatbot message from ${phoneNumber}: ${messageText}`);
+              
+              // Generate respons AI
+              const aiResponse = await GoogleAIService.generateResponse(phoneNumber, messageText);
+              
+              // Kirim balasan AI
+              await this.sendTextMessage(sessionId, msg.key.remoteJid, aiResponse);
+              
+              await this.logActivity({
+                sessionId,
+                action: 'ai_chatbot_response',
+                phoneNumber: phoneNumber,
+                messageId: msg.key.id,
+                status: 'success',
+                details: `User: ${messageText.substring(0, 50)} | AI: ${aiResponse.substring(0, 50)}`,
+                responseData: { originalMessage: messageText, aiResponse }
+              });
+
+              this.logger.info(`AI chatbot response sent to ${phoneNumber}`);
+              
+            } catch (error) {
+              this.logger.error(`Error processing AI chatbot message from ${phoneNumber}:`, error);
+              
+              await this.logActivity({
+                sessionId,
+                action: 'ai_chatbot_response',
+                phoneNumber: phoneNumber,
+                messageId: msg.key.id,
+                status: 'error',
+                errorMessage: error.message,
+                details: `Failed to process: ${messageText.substring(0, 50)}`
+              });
+
+              // Kirim pesan error yang ramah
+              try {
+                await this.sendTextMessage(sessionId, msg.key.remoteJid, 
+                  'Maaf, saya sedang mengalami gangguan. Coba kirim pesan lagi dalam beberapa menit ya! 🤖');
+              } catch (sendError) {
+                this.logger.error(`Failed to send error message to ${phoneNumber}:`, sendError);
+              }
+            }
+          }
           // Webhook untuk pesan masuk bisa ditambahkan di sini
         }
       });

@@ -15,6 +15,7 @@ const messageRoutes = require('./routes/messageRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const otpRoutes = require('./routes/otpRoutes');
+const aiChatbotRoutes = require('./routes/aiChatbotRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,6 +61,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/otp', otpRoutes);
+app.use('/api/ai', aiChatbotRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -97,6 +99,7 @@ app.get('/', (req, res) => {
       otp: '/api/otp',
       analytics: '/api/analytics',
       webhook: '/api/webhook',
+      ai: '/api/ai',
       docs: '/docs'
     },
     database: {
@@ -106,6 +109,7 @@ app.get('/', (req, res) => {
     features: [
       'Multi-session WhatsApp support',
       'OTP generation and verification',
+      'AI Chatbot with Google AI Studio',
       'Message logging and analytics',
       'Database persistence',
       'Activity tracking',
@@ -150,7 +154,8 @@ app.use((req, res) => {
       messages: '/api/messages',
       otp: '/api/otp',
       analytics: '/api/analytics',
-      webhook: '/api/webhook'
+      webhook: '/api/webhook',
+      ai: '/api/ai'
     }
   });
 });

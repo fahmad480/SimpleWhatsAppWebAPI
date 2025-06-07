@@ -6,6 +6,7 @@ REST API for sending OTP and various types of messages via WhatsApp using [Baile
 
 - ✅ Multi-session WhatsApp support
 - ✅ Send OTP automatically
+- ✅ **AI Chatbot with Google AI Studio** 🤖
 - ✅ Send text messages
 - ✅ Send images with caption
 - ✅ Send videos with caption
@@ -16,6 +17,7 @@ REST API for sending OTP and various types of messages via WhatsApp using [Baile
 - ✅ Auto reconnect
 - ✅ File upload support
 - ✅ Complete logging
+- ✅ Database integration
 
 ## 📦 Installation
 
@@ -43,11 +45,28 @@ npm start
 
 ## 🔧 Configuration
 
+### AI Chatbot Setup (Optional)
+
+To enable AI chatbot feature with Google AI Studio:
+
+1. Get API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Add to your `.env` file:
+```env
+GOOGLE_AI_API_KEY=your_google_ai_studio_api_key_here
+GOOGLE_AI_MODEL=gemini-1.5-flash
+AI_CHATBOT_PHONE=081220749123
+```
+
+**Note**: Pesan dari nomor `081220749123` akan otomatis direspons oleh AI chatbot.
+
+### Directory Structure
+
 The application will automatically create required directories:
 - `sessions/` - Store WhatsApp session data
 - `uploads/` - Store temporary upload files
 - `logs/` - Store application logs
 - `qr-codes/` - QR code cache
+- `database/` - SQLite database files
 
 ## 📁 Project Structure
 
@@ -90,7 +109,8 @@ whatsapp-otp-api/
 ├── docs/
 │   ├── INTEGRATION_GUIDE.md         # Integration guide
 │   ├── TROUBLESHOOTING.md           # Troubleshooting guide
-│   └── DATABASE_INTEGRATION.md     # Database setup guide
+│   ├── DATABASE_INTEGRATION.md      # Database setup guide
+│   └── AI_CHATBOT_GUIDE.md          # AI Chatbot integration guide
 ├── database/                        # SQLite database files
 ├── sessions/                        # WhatsApp session data
 ├── uploads/                         # Temporary file uploads
@@ -150,6 +170,39 @@ PUT /api/sessions/{sessionId}/restart
 #### 7. Delete Session
 ```http
 DELETE /api/sessions/{sessionId}
+```
+
+### AI Chatbot Management
+
+#### 1. AI Health Check
+```http
+GET /api/ai/health
+```
+
+#### 2. AI Statistics
+```http
+GET /api/ai/stats
+```
+
+#### 3. Test AI Response
+```http
+POST /api/ai/test
+Content-Type: application/json
+
+{
+  "message": "Halo, siapa kamu?",
+  "phoneNumber": "628123456789" // optional
+}
+```
+
+#### 4. Get Conversation History
+```http
+GET /api/ai/history/{phoneNumber}
+```
+
+#### 5. Clear Conversation History
+```http
+DELETE /api/ai/history/{phoneNumber}
 ```
 
 ### Message Sending
