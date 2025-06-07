@@ -28,6 +28,8 @@ class WhatsAppService {
   constructor() {
     this.sessions = new Map();
     this.qrCodes = new Map();
+    this.reconnectAttempts = new Map(); // Track reconnect attempts
+    this.reconnectTimeouts = new Map(); // Track active timeouts
     this.logger = winston.createLogger({
       level: 'info',
       format: winston.format.combine(
@@ -67,6 +69,234 @@ class WhatsAppService {
     }
   }
 
+  // Setup socket event handlers (extracted to avoid duplication)
+  setupSocketEventHandlers(sock, sessionId, sessionData, saveCreds) {
+    // Remove any existing event listeners
+    sock.ev.removeAllListeners();
+    
+    sock.ev.on('creds.update', saveCreds);
+    
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+      
+      if (qr) {
+        const qrCodeString = await QRCode.toDataURL(qr);
+        sessionData.qrCode = qrCodeString;
+        this.qrCodes.set(sessionId, {
+          qr: qrCodeString,
+          timestamp: new Date()
+        });
+        
+        // Update database
+        await Session.createOrUpdate(sessionId, {
+          qrGenerated: new Date(),
+          status: 'connecting'
+        });
+
+        await this.logActivity({
+          sessionId,
+          action: 'qr_generate',
+          status: 'success'
+        });
+
+        this.logger.info(`QR Code generated untuk session ${sessionId}`);
+      }
+
+      if (connection === 'close') {
+        const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        
+        this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+        
+        // Log disconnection
+        await this.logActivity({
+          sessionId,
+          action: 'connection_close',
+          status: 'success',
+          details: `Status code: ${statusCode}, Reconnecting: ${shouldReconnect}`,
+          errorMessage: lastDisconnect?.error?.message
+        });
+
+        // Update database
+        await Session.createOrUpdate(sessionId, {
+          isConnected: false,
+          disconnectedAt: new Date(),
+          status: shouldReconnect ? 'connecting' : 'inactive',
+          errorMessage: lastDisconnect?.error?.message
+        });
+
+        // Update session data
+        sessionData.isConnected = false;
+        sessionData.qrCode = null;
+        
+        if (shouldReconnect) {
+          await this.handleReconnection(sessionId, statusCode, lastDisconnect?.error?.message);
+        } else {
+          await this.removeSession(sessionId);
+        }
+      } else if (connection === 'open') {
+        // Reset reconnect attempts on successful connection
+        this.reconnectAttempts.delete(sessionId);
+        this.clearReconnectTimeout(sessionId);
+        
+        sessionData.isConnected = true;
+        sessionData.user = sock.user;
+        sessionData.qrCode = null;
+        this.qrCodes.delete(sessionId);
+
+        // Update database
+        const dbSession = await Session.createOrUpdate(sessionId);
+        await dbSession.setConnected(sock.user);
+
+        await this.logActivity({
+          sessionId,
+          action: 'connection_open',
+          status: 'success',
+          details: `Connected as ${sock.user?.name || sock.user?.id}`
+        });
+
+        this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
+      }
+    });
+
+    sock.ev.on('messages.upsert', async (m) => {
+      const msg = m.messages[0];
+      if (!msg.key.fromMe && msg.message) {
+        const phoneNumber = msg.key.remoteJid?.split('@')[0];
+        const messageText = msg.message?.conversation || 
+                          msg.message?.extendedTextMessage?.text || 
+                          msg.message?.imageMessage?.caption || 
+                          msg.message?.videoMessage?.caption || '';
+        
+        this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid} - ${messageText}`);
+        
+        await this.logActivity({
+          sessionId,
+          action: 'message_receive',
+          phoneNumber: phoneNumber,
+          messageId: msg.key.id,
+          status: 'success',
+          details: messageText.substring(0, 100)
+        });
+
+        // Cek apakah pesan dari nomor AI chatbot
+        const aiChatbotPhone = process.env.AI_CHATBOT_PHONE || '081220749123';
+        if (phoneNumber === aiChatbotPhone.replace(/^0/, '62')) {
+          try {
+            this.logger.info(`Processing AI chatbot message from ${phoneNumber}: ${messageText}`);
+            
+            // Generate respons AI
+            const aiResponse = await GoogleAIService.generateResponse(phoneNumber, messageText);
+            
+            // Kirim balasan AI
+            await this.sendTextMessage(sessionId, msg.key.remoteJid, aiResponse);
+            
+            await this.logActivity({
+              sessionId,
+              action: 'ai_chatbot_response',
+              phoneNumber: phoneNumber,
+              messageId: msg.key.id,
+              status: 'success',
+              details: `User: ${messageText.substring(0, 50)} | AI: ${aiResponse.substring(0, 50)}`,
+              responseData: { originalMessage: messageText, aiResponse }
+            });
+
+            this.logger.info(`AI chatbot response sent to ${phoneNumber}`);
+            
+          } catch (error) {
+            this.logger.error(`Error processing AI chatbot message from ${phoneNumber}:`, error);
+            
+            await this.logActivity({
+              sessionId,
+              action: 'ai_chatbot_response',
+              phoneNumber: phoneNumber,
+              messageId: msg.key.id,
+              status: 'error',
+              errorMessage: error.message,
+              details: `Failed to process: ${messageText.substring(0, 50)}`
+            });
+
+            // Kirim pesan error yang ramah
+            try {
+              await this.sendTextMessage(sessionId, msg.key.remoteJid, 
+                'Maaf, saya sedang mengalami gangguan. Coba kirim pesan lagi dalam beberapa menit ya! 🤖');
+            } catch (sendError) {
+              this.logger.error(`Failed to send error message to ${phoneNumber}:`, sendError);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Handle reconnection with retry limit
+  async handleReconnection(sessionId, statusCode, errorMessage) {
+    const maxRetries = 5;
+    const currentAttempts = this.reconnectAttempts.get(sessionId) || 0;
+    
+    if (currentAttempts >= maxRetries) {
+      this.logger.error(`Max reconnection attempts reached for session ${sessionId}, removing session`);
+      await this.removeSession(sessionId);
+      return;
+    }
+
+    // Clear any existing timeout
+    this.clearReconnectTimeout(sessionId);
+    
+    // Calculate delay with exponential backoff
+    const baseDelay = 3000; // 3 seconds
+    const delay = baseDelay * Math.pow(2, currentAttempts); // 3s, 6s, 12s, 24s, 48s
+    
+    this.logger.info(`Scheduling reconnection for session ${sessionId} in ${delay}ms (attempt ${currentAttempts + 1}/${maxRetries})`);
+    
+    // Update reconnect attempts
+    this.reconnectAttempts.set(sessionId, currentAttempts + 1);
+    
+    // Set timeout for reconnection
+    const timeoutId = setTimeout(async () => {
+      try {
+        // Check if session still exists and needs reconnection
+        const session = this.sessions.get(sessionId);
+        if (!session || session.isConnected) {
+          this.logger.info(`Session ${sessionId} no longer needs reconnection`);
+          this.reconnectAttempts.delete(sessionId);
+          return;
+        }
+
+        this.logger.info(`Attempting reconnection for session ${sessionId} (attempt ${currentAttempts + 1})`);
+        
+        // Special handling for stream error 515 (post-pairing restart)
+        if (statusCode === 515 || errorMessage?.includes('Stream Errored')) {
+          await this.reconnectSession(sessionId);
+        } else {
+          // For other errors, recreate session completely
+          await this.recreateSession(sessionId);
+        }
+      } catch (error) {
+        this.logger.error(`Error during reconnection attempt for session ${sessionId}:`, error);
+        
+        // If reconnection fails, try again or give up
+        if (currentAttempts < maxRetries - 1) {
+          await this.handleReconnection(sessionId, statusCode, errorMessage);
+        } else {
+          this.logger.error(`All reconnection attempts failed for session ${sessionId}, removing session`);
+          await this.removeSession(sessionId);
+        }
+      }
+    }, delay);
+    
+    this.reconnectTimeouts.set(sessionId, timeoutId);
+  }
+
+  // Clear reconnect timeout
+  clearReconnectTimeout(sessionId) {
+    const timeoutId = this.reconnectTimeouts.get(sessionId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      this.reconnectTimeouts.delete(sessionId);
+    }
+  }
+
   // Create new WhatsApp session
   async createSession(sessionId) {
     if (this.sessions.has(sessionId)) {
@@ -74,6 +304,10 @@ class WhatsAppService {
     }
 
     try {
+      // Clear any existing reconnection data
+      this.reconnectAttempts.delete(sessionId);
+      this.clearReconnectTimeout(sessionId);
+
       // Create or update session in database
       await Session.createOrUpdate(sessionId, {
         status: 'connecting'
@@ -113,173 +347,8 @@ class WhatsAppService {
 
       this.sessions.set(sessionId, sessionData);
 
-      // Event handlers
-      sock.ev.on('creds.update', saveCreds);
-      
-      sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-          const qrCodeString = await QRCode.toDataURL(qr);
-          sessionData.qrCode = qrCodeString;
-          this.qrCodes.set(sessionId, {
-            qr: qrCodeString,
-            timestamp: new Date()
-          });
-          
-          // Update database
-          await Session.createOrUpdate(sessionId, {
-            qrGenerated: new Date(),
-            status: 'connecting'
-          });
-
-          await this.logActivity({
-            sessionId,
-            action: 'qr_generate',
-            status: 'success'
-          });
-
-          this.logger.info(`QR Code generated untuk session ${sessionId}`);
-        }
-
-        if (connection === 'close') {
-          const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          
-          this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-          
-          // Log disconnection
-          await this.logActivity({
-            sessionId,
-            action: 'connection_close',
-            status: 'success',
-            details: `Status code: ${statusCode}, Reconnecting: ${shouldReconnect}`,
-            errorMessage: lastDisconnect?.error?.message
-          });
-
-          // Update database
-          await Session.createOrUpdate(sessionId, {
-            isConnected: false,
-            disconnectedAt: new Date(),
-            status: shouldReconnect ? 'connecting' : 'inactive',
-            errorMessage: lastDisconnect?.error?.message
-          });
-          
-          if (shouldReconnect) {
-            // Jika ini adalah restart setelah pairing (stream error 515), 
-            // jangan hapus session data, hanya recreate socket
-            if (statusCode === 515 || lastDisconnect?.error?.message?.includes('Stream Errored')) {
-              this.logger.info(`Restart diperlukan setelah pairing untuk session ${sessionId}, mempertahankan data session`);
-              
-              // Update session data tapi jangan hapus
-              sessionData.isConnected = false;
-              sessionData.qrCode = null;
-              
-              // Delay sebelum reconnect tanpa menghapus session files
-              setTimeout(() => {
-                this.reconnectSession(sessionId);
-              }, 3000);
-            } else {
-              // Untuk error lain, hapus session dulu
-              await this.removeSession(sessionId);
-              
-              // Delay sebelum reconnect
-              setTimeout(() => {
-                this.createSession(sessionId);
-              }, 5000);
-            }
-          } else {
-            await this.removeSession(sessionId);
-          }
-        } else if (connection === 'open') {
-          sessionData.isConnected = true;
-          sessionData.user = sock.user;
-          sessionData.qrCode = null;
-          this.qrCodes.delete(sessionId);
-
-          // Update database
-          const dbSession = await Session.createOrUpdate(sessionId);
-          await dbSession.setConnected(sock.user);
-
-          await this.logActivity({
-            sessionId,
-            action: 'connection_open',
-            status: 'success',
-            details: `Connected as ${sock.user?.name || sock.user?.id}`
-          });
-
-          this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
-        }
-      });
-
-      sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.key.fromMe && msg.message) {
-          const phoneNumber = msg.key.remoteJid?.split('@')[0];
-          const messageText = msg.message?.conversation || 
-                            msg.message?.extendedTextMessage?.text || 
-                            msg.message?.imageMessage?.caption || 
-                            msg.message?.videoMessage?.caption || '';
-          
-          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid} - ${messageText}`);
-          
-          await this.logActivity({
-            sessionId,
-            action: 'message_receive',
-            phoneNumber: phoneNumber,
-            messageId: msg.key.id,
-            status: 'success',
-            details: messageText.substring(0, 100)
-          });
-
-          // Cek apakah pesan dari nomor AI chatbot
-          const aiChatbotPhone = process.env.AI_CHATBOT_PHONE || '081220749123';
-          if (phoneNumber === aiChatbotPhone.replace(/^0/, '62')) {
-            try {
-              this.logger.info(`Processing AI chatbot message from ${phoneNumber}: ${messageText}`);
-              
-              // Generate respons AI
-              const aiResponse = await GoogleAIService.generateResponse(phoneNumber, messageText);
-              
-              // Kirim balasan AI
-              await this.sendTextMessage(sessionId, msg.key.remoteJid, aiResponse);
-              
-              await this.logActivity({
-                sessionId,
-                action: 'ai_chatbot_response',
-                phoneNumber: phoneNumber,
-                messageId: msg.key.id,
-                status: 'success',
-                details: `User: ${messageText.substring(0, 50)} | AI: ${aiResponse.substring(0, 50)}`,
-                responseData: { originalMessage: messageText, aiResponse }
-              });
-
-              this.logger.info(`AI chatbot response sent to ${phoneNumber}`);
-              
-            } catch (error) {
-              this.logger.error(`Error processing AI chatbot message from ${phoneNumber}:`, error);
-              
-              await this.logActivity({
-                sessionId,
-                action: 'ai_chatbot_response',
-                phoneNumber: phoneNumber,
-                messageId: msg.key.id,
-                status: 'error',
-                errorMessage: error.message,
-                details: `Failed to process: ${messageText.substring(0, 50)}`
-              });
-
-              // Kirim pesan error yang ramah
-              try {
-                await this.sendTextMessage(sessionId, msg.key.remoteJid, 
-                  'Maaf, saya sedang mengalami gangguan. Coba kirim pesan lagi dalam beberapa menit ya! 🤖');
-              } catch (sendError) {
-                this.logger.error(`Failed to send error message to ${phoneNumber}:`, sendError);
-              }
-            }
-          }
-        }
-      });
+      // Setup event handlers
+      this.setupSocketEventHandlers(sock, sessionId, sessionData, saveCreds);
 
       return sessionData;
     } catch (error) {
@@ -299,14 +368,21 @@ class WhatsAppService {
   // Create or recreate session (for reconnection)
   async recreateSession(sessionId) {
     try {
-      // Hapus session lama jika ada
+      // Clear reconnection data
+      this.reconnectAttempts.delete(sessionId);
+      this.clearReconnectTimeout(sessionId);
+
+      // Clean up existing session
       if (this.sessions.has(sessionId)) {
         const session = this.sessions.get(sessionId);
         if (session.socket) {
           try {
+            // Remove event listeners before logout
+            session.socket.ev.removeAllListeners();
             await session.socket.logout();
           } catch (e) {
             // Ignore logout errors
+            this.logger.warn(`Logout error during recreate for session ${sessionId}:`, e.message);
           }
         }
         this.sessions.delete(sessionId);
@@ -337,6 +413,17 @@ class WhatsAppService {
 
       this.logger.info(`Reconnecting session ${sessionId} menggunakan WA v${version.join('.')}, isLatest: ${isLatest}`);
 
+      // Clean up old socket if exists
+      const existingSession = this.sessions.get(sessionId);
+      if (existingSession && existingSession.socket) {
+        try {
+          existingSession.socket.ev.removeAllListeners();
+          await existingSession.socket.logout();
+        } catch (e) {
+          this.logger.warn(`Error cleaning up old socket for session ${sessionId}:`, e.message);
+        }
+      }
+
       const sock = makeWASocket({
         version,
         auth: state,
@@ -346,7 +433,7 @@ class WhatsAppService {
         defaultQueryTimeoutMs: 60000,
       });
 
-      // Update session data yang ada
+      // Update or create session data
       const sessionData = this.sessions.get(sessionId) || {
         sessionId,
         isConnected: false,
@@ -361,138 +448,44 @@ class WhatsAppService {
 
       this.sessions.set(sessionId, sessionData);
 
-      // Event handlers (same as createSession)
-      sock.ev.on('creds.update', saveCreds);
-      
-      sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-          const qrCodeString = await QRCode.toDataURL(qr);
-          sessionData.qrCode = qrCodeString;
-          this.qrCodes.set(sessionId, {
-            qr: qrCodeString,
-            timestamp: new Date()
-          });
-          this.logger.info(`QR Code generated untuk session ${sessionId}`);
-        }
-
-        if (connection === 'close') {
-          const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
-          const statusCode = lastDisconnect?.error?.output?.statusCode;
-          
-          this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-          
-          if (shouldReconnect) {
-            // Jika ini adalah restart setelah pairing (stream error 515), 
-            // jangan hapus session data, hanya recreate socket
-            if (statusCode === 515 || lastDisconnect?.error?.message?.includes('Stream Errored')) {
-              this.logger.info(`Restart diperlukan setelah pairing untuk session ${sessionId}, mempertahankan data session`);
-              
-              // Update session data tapi jangan hapus
-              sessionData.isConnected = false;
-              sessionData.qrCode = null;
-              
-              // Delay sebelum reconnect tanpa menghapus session files
-              setTimeout(() => {
-                this.reconnectSession(sessionId);
-              }, 3000);
-            } else {
-              // Untuk error lain, hapus session dulu
-              await this.removeSession(sessionId);
-              
-              // Delay sebelum reconnect
-              setTimeout(() => {
-                this.createSession(sessionId);
-              }, 5000);
-            }
-          } else {
-            await this.removeSession(sessionId);
-          }
-        } else if (connection === 'open') {
-          sessionData.isConnected = true;
-          sessionData.user = sock.user;
-          sessionData.qrCode = null;
-          this.qrCodes.delete(sessionId);
-          this.logger.info(`Session ${sessionId} berhasil terhubung sebagai ${sock.user?.name || sock.user?.id}`);
-        }
-      });
-
-      sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.key.fromMe && msg.message) {
-          const phoneNumber = msg.key.remoteJid?.split('@')[0];
-          const messageText = msg.message?.conversation || 
-                            msg.message?.extendedTextMessage?.text || 
-                            msg.message?.imageMessage?.caption || 
-                            msg.message?.videoMessage?.caption || '';
-          
-          this.logger.info(`Pesan masuk di session ${sessionId}: ${msg.key.remoteJid} - ${messageText}`);
-          
-          await this.logActivity({
-            sessionId,
-            action: 'message_receive',
-            phoneNumber: phoneNumber,
-            messageId: msg.key.id,
-            status: 'success',
-            details: messageText.substring(0, 100)
-          });
-
-          // Cek apakah pesan dari nomor AI chatbot
-          const aiChatbotPhone = process.env.AI_CHATBOT_PHONE || '081220749123';
-          if (phoneNumber === aiChatbotPhone.replace(/^0/, '62')) {
-            try {
-              this.logger.info(`Processing AI chatbot message from ${phoneNumber}: ${messageText}`);
-              
-              // Generate respons AI
-              const aiResponse = await GoogleAIService.generateResponse(phoneNumber, messageText);
-              
-              // Kirim balasan AI
-              await this.sendTextMessage(sessionId, msg.key.remoteJid, aiResponse);
-              
-              await this.logActivity({
-                sessionId,
-                action: 'ai_chatbot_response',
-                phoneNumber: phoneNumber,
-                messageId: msg.key.id,
-                status: 'success',
-                details: `User: ${messageText.substring(0, 50)} | AI: ${aiResponse.substring(0, 50)}`,
-                responseData: { originalMessage: messageText, aiResponse }
-              });
-
-              this.logger.info(`AI chatbot response sent to ${phoneNumber}`);
-              
-            } catch (error) {
-              this.logger.error(`Error processing AI chatbot message from ${phoneNumber}:`, error);
-              
-              await this.logActivity({
-                sessionId,
-                action: 'ai_chatbot_response',
-                phoneNumber: phoneNumber,
-                messageId: msg.key.id,
-                status: 'error',
-                errorMessage: error.message,
-                details: `Failed to process: ${messageText.substring(0, 50)}`
-              });
-
-              // Kirim pesan error yang ramah
-              try {
-                await this.sendTextMessage(sessionId, msg.key.remoteJid, 
-                  'Maaf, saya sedang mengalami gangguan. Coba kirim pesan lagi dalam beberapa menit ya! 🤖');
-              } catch (sendError) {
-                this.logger.error(`Failed to send error message to ${phoneNumber}:`, sendError);
-              }
-            }
-          }
-          // Webhook untuk pesan masuk bisa ditambahkan di sini
-        }
-      });
+      // Setup event handlers
+      this.setupSocketEventHandlers(sock, sessionId, sessionData, saveCreds);
 
       return sessionData;
     } catch (error) {
       this.logger.error(`Error reconnecting session ${sessionId}:`, error);
       // Fallback ke create session baru jika reconnect gagal
       return await this.createSession(sessionId);
+    }
+  }
+
+  // Restart session with proper validation
+  async restartSession(sessionId) {
+    try {
+      this.logger.info(`Restarting session ${sessionId}`);
+      
+      // Check if session exists
+      const sessionPath = path.join('sessions', sessionId);
+      const hasSessionFiles = await fs.pathExists(sessionPath);
+      
+      if (!hasSessionFiles) {
+        this.logger.warn(`No session files found for ${sessionId}, creating new session`);
+        return await this.createSession(sessionId);
+      }
+      
+      // Remove existing session if any
+      if (this.sessions.has(sessionId)) {
+        await this.removeSession(sessionId);
+        // Wait a bit for cleanup
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Create new session using existing files
+      return await this.createSession(sessionId);
+      
+    } catch (error) {
+      this.logger.error(`Error restarting session ${sessionId}:`, error);
+      throw error;
     }
   }
 
@@ -519,8 +512,14 @@ class WhatsAppService {
   async removeSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (session) {
+      // Clear reconnection data
+      this.reconnectAttempts.delete(sessionId);
+      this.clearReconnectTimeout(sessionId);
+      
       if (session.socket) {
         try {
+          // Remove event listeners before logout
+          session.socket.ev.removeAllListeners();
           await session.socket.logout();
         } catch (error) {
           // Ignore logout errors, socket mungkin sudah tidak valid
