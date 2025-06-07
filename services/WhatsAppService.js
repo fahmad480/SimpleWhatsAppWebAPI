@@ -102,39 +102,40 @@ class WhatsAppService {
         this.logger.info(`QR Code generated untuk session ${sessionId}`);
       }
 
-      if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error?.output?.statusCode) !== DisconnectReason.loggedOut;
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        
-        this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-        
-        // Log disconnection
-        await this.logActivity({
-          sessionId,
-          action: 'connection_close',
-          status: 'success',
-          details: `Status code: ${statusCode}, Reconnecting: ${shouldReconnect}`,
-          errorMessage: lastDisconnect?.error?.message
-        });
+             if (connection === 'close') {
+         const statusCode = lastDisconnect?.error?.output?.statusCode;
+         const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 440;
+         
+         this.logger.info(`Connection closed untuk session ${sessionId}. Status code: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+         
+         // Log disconnection
+         await this.logActivity({
+           sessionId,
+           action: 'connection_close',
+           status: 'success',
+           details: `Status code: ${statusCode}, Reconnecting: ${shouldReconnect}`,
+           errorMessage: lastDisconnect?.error?.message
+         });
 
-        // Update database
-        await Session.createOrUpdate(sessionId, {
-          isConnected: false,
-          disconnectedAt: new Date(),
-          status: shouldReconnect ? 'connecting' : 'inactive',
-          errorMessage: lastDisconnect?.error?.message
-        });
+         // Update database
+         await Session.createOrUpdate(sessionId, {
+           isConnected: false,
+           disconnectedAt: new Date(),
+           status: shouldReconnect ? 'connecting' : 'inactive',
+           errorMessage: lastDisconnect?.error?.message
+         });
 
-        // Update session data
-        sessionData.isConnected = false;
-        sessionData.qrCode = null;
-        
-        if (shouldReconnect) {
-          await this.handleReconnection(sessionId, statusCode, lastDisconnect?.error?.message);
-        } else {
-          await this.removeSession(sessionId);
-        }
-      } else if (connection === 'open') {
+         // Update session data
+         sessionData.isConnected = false;
+         sessionData.qrCode = null;
+         
+         if (shouldReconnect) {
+           await this.handleReconnection(sessionId, statusCode, lastDisconnect?.error?.message);
+         } else {
+           this.logger.info(`Session ${sessionId} will not reconnect (status: ${statusCode})`);
+           await this.removeSession(sessionId);
+         }
+       } else if (connection === 'open') {
         // Reset reconnect attempts on successful connection
         this.reconnectAttempts.delete(sessionId);
         this.clearReconnectTimeout(sessionId);
@@ -265,13 +266,16 @@ class WhatsAppService {
 
         this.logger.info(`Attempting reconnection for session ${sessionId} (attempt ${currentAttempts + 1})`);
         
-        // Special handling for stream error 515 (post-pairing restart)
-        if (statusCode === 515 || errorMessage?.includes('Stream Errored')) {
-          await this.reconnectSession(sessionId);
-        } else {
-          // For other errors, recreate session completely
-          await this.recreateSession(sessionId);
+        // Check for specific error types that shouldn't reconnect
+        if (statusCode === 440) {
+          // Conflict/replaced - WhatsApp is logged in elsewhere
+          this.logger.info(`Session ${sessionId} conflict detected (status 440), removing session`);
+          await this.removeSession(sessionId);
+          return;
         }
+        
+        // For stream errors, just recreate the session completely
+        await this.recreateSession(sessionId);
       } catch (error) {
         this.logger.error(`Error during reconnection attempt for session ${sessionId}:`, error);
         
@@ -368,6 +372,18 @@ class WhatsAppService {
   // Create or recreate session (for reconnection)
   async recreateSession(sessionId) {
     try {
+      // Prevent multiple recreations for the same session
+      const currentAttempt = this.reconnectAttempts.get(sessionId) || 0;
+      if (currentAttempt > 0) {
+        const session = this.sessions.get(sessionId);
+        if (session && session.isConnected) {
+          this.logger.info(`Session ${sessionId} is already connected, skipping recreation`);
+          this.reconnectAttempts.delete(sessionId);
+          this.clearReconnectTimeout(sessionId);
+          return session;
+        }
+      }
+
       // Clear reconnection data
       this.reconnectAttempts.delete(sessionId);
       this.clearReconnectTimeout(sessionId);
@@ -389,6 +405,9 @@ class WhatsAppService {
         this.qrCodes.delete(sessionId);
       }
 
+      // Wait a bit for cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // Buat session baru
       return await this.createSession(sessionId);
     } catch (error) {
@@ -397,66 +416,10 @@ class WhatsAppService {
     }
   }
 
-  // Reconnect session without removing session data (for post-pairing restart)
+  // Alias for recreateSession (for backward compatibility)
   async reconnectSession(sessionId) {
-    try {
-      const sessionPath = path.join('sessions', sessionId);
-      
-      // Pastikan session path masih ada
-      if (!await fs.pathExists(sessionPath)) {
-        this.logger.warn(`Session path tidak ditemukan untuk ${sessionId}, membuat session baru`);
-        return await this.createSession(sessionId);
-      }
-
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-      const { version, isLatest } = await fetchLatestBaileysVersion();
-
-      this.logger.info(`Reconnecting session ${sessionId} menggunakan WA v${version.join('.')}, isLatest: ${isLatest}`);
-
-      // Clean up old socket if exists
-      const existingSession = this.sessions.get(sessionId);
-      if (existingSession && existingSession.socket) {
-        try {
-          existingSession.socket.ev.removeAllListeners();
-          await existingSession.socket.logout();
-        } catch (e) {
-          this.logger.warn(`Error cleaning up old socket for session ${sessionId}:`, e.message);
-        }
-      }
-
-      const sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        browser: ['WhatsApp OTP API', 'Chrome', '1.0.0'],
-        generateHighQualityLinkPreview: true,
-        defaultQueryTimeoutMs: 60000,
-      });
-
-      // Update or create session data
-      const sessionData = this.sessions.get(sessionId) || {
-        sessionId,
-        isConnected: false,
-        qrCode: null,
-        user: null,
-        lastSeen: new Date()
-      };
-
-      sessionData.socket = sock;
-      sessionData.isConnected = false;
-      sessionData.lastSeen = new Date();
-
-      this.sessions.set(sessionId, sessionData);
-
-      // Setup event handlers
-      this.setupSocketEventHandlers(sock, sessionId, sessionData, saveCreds);
-
-      return sessionData;
-    } catch (error) {
-      this.logger.error(`Error reconnecting session ${sessionId}:`, error);
-      // Fallback ke create session baru jika reconnect gagal
-      return await this.createSession(sessionId);
-    }
+    this.logger.info(`Reconnect session ${sessionId} - using recreateSession instead`);
+    return await this.recreateSession(sessionId);
   }
 
   // Restart session with proper validation
